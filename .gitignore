@@ -1,0 +1,23 @@
+# Ficheiros temporarios
+*.tmp
+*.temp
+*~
+__pycache__/
+*.pyc
+
+# Backups
+*_backup.*
+*.bak
+
+# Ficheiros de saida/teste (gerados)
+*_export.xlsx
+*_output.*
+Output*.E3A
+
+# Pastas de desenvolvimento/teste
+_desenvolvimento/
+_testes/
+
+# Ficheiros grandes binarios (opcional - descomentar se necessario)
+# *.E3A
+# *.mdb
