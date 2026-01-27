@@ -337,7 +337,57 @@ def read_excel_spaces(excel_path):
             if id_val and name:
                 types['schedules'][str(name).strip()] = int(id_val)
 
-    return spaces, types
+    # Ler tipos das sheets Windows, Walls, Roofs (dados para criar no HAP)
+    type_definitions = {
+        'windows': [],
+        'walls': [],
+        'roofs': [],
+    }
+
+    # Sheet Windows: Nome, U-Value, SHGC, Altura, Largura
+    if 'Windows' in wb.sheetnames:
+        ws_win = wb['Windows']
+        for row in range(4, ws_win.max_row + 1):
+            name = ws_win.cell(row=row, column=1).value
+            if name and str(name).strip():
+                win_def = {
+                    'name': str(name).strip(),
+                    'u_value': safe_float(ws_win.cell(row=row, column=2).value, 2.8),
+                    'shgc': safe_float(ws_win.cell(row=row, column=3).value, 0.7),
+                    'height': safe_float(ws_win.cell(row=row, column=4).value, 1.2),
+                    'width': safe_float(ws_win.cell(row=row, column=5).value, 1.0),
+                }
+                type_definitions['windows'].append(win_def)
+
+    # Sheet Walls: Nome, U-Value, Peso, Espessura
+    if 'Walls' in wb.sheetnames:
+        ws_wal = wb['Walls']
+        for row in range(4, ws_wal.max_row + 1):
+            name = ws_wal.cell(row=row, column=1).value
+            if name and str(name).strip():
+                wall_def = {
+                    'name': str(name).strip(),
+                    'u_value': safe_float(ws_wal.cell(row=row, column=2).value, 0.5),
+                    'weight': safe_float(ws_wal.cell(row=row, column=3).value, 200),
+                    'thickness': safe_float(ws_wal.cell(row=row, column=4).value, 0.3),
+                }
+                type_definitions['walls'].append(wall_def)
+
+    # Sheet Roofs: Nome, U-Value, Peso, Espessura
+    if 'Roofs' in wb.sheetnames:
+        ws_rof = wb['Roofs']
+        for row in range(4, ws_rof.max_row + 1):
+            name = ws_rof.cell(row=row, column=1).value
+            if name and str(name).strip():
+                roof_def = {
+                    'name': str(name).strip(),
+                    'u_value': safe_float(ws_rof.cell(row=row, column=2).value, 0.4),
+                    'weight': safe_float(ws_rof.cell(row=row, column=3).value, 300),
+                    'thickness': safe_float(ws_rof.cell(row=row, column=4).value, 0.3),
+                }
+                type_definitions['roofs'].append(roof_def)
+
+    return spaces, types, type_definitions
 
 def get_type_id(name, type_dict, default=1):
     """Obtém o ID de um tipo pelo nome."""
@@ -351,6 +401,36 @@ def get_type_id(name, type_dict, default=1):
         if name_str.lower() in key.lower() or key.lower() in name_str.lower():
             return val
     return default
+
+# =============================================================================
+# CRIAR TIPOS BINÁRIOS (Windows, Walls, Roofs)
+# =============================================================================
+
+WINDOW_RECORD_SIZE = 555
+WALL_RECORD_SIZE = 910  # Aproximado baseado em análise
+ROOF_RECORD_SIZE = 910  # Igual ao wall
+
+def create_window_binary(win_def, template_record):
+    """Cria registo binário de 555 bytes para uma window."""
+    data = bytearray(template_record)
+
+    # Nome (0-255)
+    name_bytes = win_def['name'].encode('latin-1')[:255].ljust(255, b' ')
+    data[0:255] = name_bytes
+
+    # Altura (257-260) em ft
+    struct.pack_into('<f', data, 257, m_to_ft(win_def['height']))
+
+    # Largura (261-264) em ft
+    struct.pack_into('<f', data, 261, m_to_ft(win_def['width']))
+
+    # U-Value (269-272) em BTU/hr.ft2.F
+    struct.pack_into('<f', data, 269, u_si_to_ip(win_def['u_value']))
+
+    # SHGC (273-276)
+    struct.pack_into('<f', data, 273, win_def['shgc'])
+
+    return bytes(data)
 
 # =============================================================================
 # CRIAR ESPAÇO BINÁRIO
@@ -391,8 +471,8 @@ def create_space_binary(space, types, template_record):
                 struct.pack_into('<f', data, wall_start + 2, m2_to_ft2(wall.get('area')))
                 struct.pack_into('<H', data, wall_start + 6, get_type_id(wall.get('type'), types['walls']))
                 struct.pack_into('<H', data, wall_start + 8, get_type_id(wall.get('win1'), types['windows'], 0))
-                struct.pack_into('<H', data, wall_start + 10, get_type_id(wall.get('win2'), types['windows'], 0))
-                struct.pack_into('<H', data, wall_start + 12, safe_int(wall.get('win1_qty')))
+                struct.pack_into('<H', data, wall_start + 10, safe_int(wall.get('win1_qty')))
+                struct.pack_into('<H', data, wall_start + 12, get_type_id(wall.get('win2'), types['windows'], 0))
                 struct.pack_into('<H', data, wall_start + 14, safe_int(wall.get('win2_qty')))
                 struct.pack_into('<H', data, wall_start + 16, get_type_id(wall.get('door'), types['doors'], 0))
                 struct.pack_into('<H', data, wall_start + 18, safe_int(wall.get('door_qty')))
@@ -514,9 +594,9 @@ def main():
 
     # Ler Excel
     print("\n--- Lendo Excel ---")
-    spaces, types = read_excel_spaces(EXCEL_FILE)
+    spaces, types, type_definitions = read_excel_spaces(EXCEL_FILE)
     print(f"\nTotal: {len(spaces)} espaços")
-    print(f"Types: {len(types['walls'])} walls, {len(types['windows'])} windows, {len(types['schedules'])} schedules")
+    print(f"Types definidos: {len(type_definitions['walls'])} walls, {len(type_definitions['windows'])} windows, {len(type_definitions['roofs'])} roofs")
 
     # Extrair base
     print("\n--- Extraindo base ---")
@@ -557,6 +637,112 @@ def main():
 
             print(f"Total schedules disponíveis: {len(types['schedules'])}")
 
+        # Criar novos tipos de Windows se definidos no Excel
+        if type_definitions['windows']:
+            print("\n--- Criando Windows ---")
+            win_path = os.path.join(temp_dir, 'HAP51WIN.DAT')
+            with open(win_path, 'rb') as f:
+                win_data = bytearray(f.read())
+
+            num_existing_windows = len(win_data) // WINDOW_RECORD_SIZE
+            win_template = win_data[0:WINDOW_RECORD_SIZE]  # Primeiro como template
+
+            for win_def in type_definitions['windows']:
+                new_win = create_window_binary(win_def, win_template)
+                win_data.extend(new_win)
+                # Mapear nome -> ID (índice)
+                new_id = len(win_data) // WINDOW_RECORD_SIZE - 1
+                types['windows'][win_def['name']] = new_id
+                print(f"  Window {new_id}: {win_def['name']}")
+
+            with open(win_path, 'wb') as f:
+                f.write(bytes(win_data))
+
+            print(f"HAP51WIN.DAT: {len(win_data)} bytes ({len(win_data) // WINDOW_RECORD_SIZE} windows)")
+
+        # Criar novos tipos de Walls se definidos no Excel
+        # Nota: Walls são assemblies complexos com layers. Vamos copiar o template e modificar.
+        if type_definitions['walls']:
+            print("\n--- Criando Walls ---")
+            wal_path = os.path.join(temp_dir, 'HAP51WAL.DAT')
+            with open(wal_path, 'rb') as f:
+                wal_data = bytearray(f.read())
+
+            # Descobrir tamanho do primeiro registo (template)
+            # Procurar onde começa um novo nome após o primeiro
+            wall_template_size = len(wal_data)  # Se só há 1, usar tudo
+            for i in range(256, min(2000, len(wal_data))):
+                # Procurar início de novo registo (nome com letras)
+                if wal_data[i:i+1].isalpha() and wal_data[i+1:i+2].isalpha():
+                    chunk = wal_data[i:i+20]
+                    if all(32 <= b <= 126 or b == 0 for b in chunk[:10]):
+                        wall_template_size = i
+                        break
+
+            # Se não encontrou segundo registo, usar um tamanho estimado
+            if wall_template_size == len(wal_data):
+                wall_template_size = 280  # Tamanho mínimo estimado
+
+            wall_template = wal_data[0:wall_template_size]
+            # Contar registos existentes baseado no tamanho
+            num_existing_walls = len(wal_data) // wall_template_size if wall_template_size > 0 else 1
+
+            for i, wall_def in enumerate(type_definitions['walls']):
+                new_wall = bytearray(wall_template)
+                # Modificar nome (0-255)
+                name_bytes = wall_def['name'].encode('latin-1')[:255].ljust(255, b' ')
+                new_wall[0:255] = name_bytes
+                # U-value está aproximadamente no offset 269
+                struct.pack_into('<f', new_wall, 269, u_si_to_ip(wall_def['u_value']))
+
+                wal_data.extend(new_wall)
+                new_id = num_existing_walls + i
+                types['walls'][wall_def['name']] = new_id
+                print(f"  Wall {new_id}: {wall_def['name']}")
+
+            with open(wal_path, 'wb') as f:
+                f.write(bytes(wal_data))
+
+            print(f"HAP51WAL.DAT: {len(wal_data)} bytes")
+
+        # Criar novos tipos de Roofs se definidos no Excel
+        if type_definitions['roofs']:
+            print("\n--- Criando Roofs ---")
+            rof_path = os.path.join(temp_dir, 'HAP51ROF.DAT')
+            with open(rof_path, 'rb') as f:
+                rof_data = bytearray(f.read())
+
+            # Usar mesma lógica dos walls
+            roof_template_size = len(rof_data)
+            for i in range(256, min(2000, len(rof_data))):
+                if rof_data[i:i+1].isalpha() and rof_data[i+1:i+2].isalpha():
+                    chunk = rof_data[i:i+20]
+                    if all(32 <= b <= 126 or b == 0 for b in chunk[:10]):
+                        roof_template_size = i
+                        break
+
+            if roof_template_size == len(rof_data):
+                roof_template_size = 280
+
+            roof_template = rof_data[0:roof_template_size]
+            num_existing_roofs = len(rof_data) // roof_template_size if roof_template_size > 0 else 1
+
+            for i, roof_def in enumerate(type_definitions['roofs']):
+                new_roof = bytearray(roof_template)
+                name_bytes = roof_def['name'].encode('latin-1')[:255].ljust(255, b' ')
+                new_roof[0:255] = name_bytes
+                struct.pack_into('<f', new_roof, 269, u_si_to_ip(roof_def['u_value']))
+
+                rof_data.extend(new_roof)
+                new_id = num_existing_roofs + i
+                types['roofs'][roof_def['name']] = new_id
+                print(f"  Roof {new_id}: {roof_def['name']}")
+
+            with open(rof_path, 'wb') as f:
+                f.write(bytes(rof_data))
+
+            print(f"HAP51ROF.DAT: {len(rof_data)} bytes")
+
         # Criar novos espaços
         print("\n--- Criando espaços ---")
         new_spc_data = bytearray(default_record)  # Começar com default
@@ -594,6 +780,46 @@ def main():
                 lighting = safe_float(space.get('general_light', 0))
                 cursor.execute(f"INSERT INTO SpaceIndex (nIndex, szName, fFloorArea, fNumPeople, fLightingDensity) VALUES ({space_id}, '{name}', {area_ft2}, {people}, {lighting})")
                 print(f"  SpaceIndex: {space_id} = {name}")
+
+            # Inserir novas Windows no WindowIndex
+            # WindowIndex: nIndex, szName, fOverallUValue, fOverallShadeCo, fHeight, fWidth
+            if type_definitions['windows']:
+                for win_def in type_definitions['windows']:
+                    win_id = types['windows'].get(win_def['name'])
+                    if win_id:
+                        name = win_def['name'][:255]
+                        u_val = u_si_to_ip(win_def['u_value'])
+                        shgc = win_def['shgc']
+                        height = m_to_ft(win_def['height'])
+                        width = m_to_ft(win_def['width'])
+                        cursor.execute(f"INSERT INTO WindowIndex (nIndex, szName, fOverallUValue, fOverallShadeCo, fHeight, fWidth) VALUES ({win_id}, '{name}', {u_val}, {shgc}, {height}, {width})")
+                        print(f"  WindowIndex: {win_id} = {name}")
+
+            # Inserir novas Walls no WallIndex
+            # WallIndex: nIndex, szName, fOverallUValue, fOverallWeight, fThickness
+            if type_definitions['walls']:
+                for wall_def in type_definitions['walls']:
+                    wall_id = types['walls'].get(wall_def['name'])
+                    if wall_id is not None:
+                        name = wall_def['name'][:255]
+                        u_val = u_si_to_ip(wall_def['u_value'])
+                        weight = kg_m2_to_lb_ft2(wall_def['weight'])
+                        thickness = m_to_ft(wall_def['thickness']) * 12  # metros para inches
+                        cursor.execute(f"INSERT INTO WallIndex (nIndex, szName, fOverallUValue, fOverallWeight, fThickness) VALUES ({wall_id}, '{name}', {u_val}, {weight}, {thickness})")
+                        print(f"  WallIndex: {wall_id} = {name}")
+
+            # Inserir novos Roofs no RoofIndex
+            # RoofIndex: nIndex, szName, fOverallUValue, fOverallWeight, fThickness
+            if type_definitions['roofs']:
+                for roof_def in type_definitions['roofs']:
+                    roof_id = types['roofs'].get(roof_def['name'])
+                    if roof_id is not None:
+                        name = roof_def['name'][:255]
+                        u_val = u_si_to_ip(roof_def['u_value'])
+                        weight = kg_m2_to_lb_ft2(roof_def['weight'])
+                        thickness = m_to_ft(roof_def['thickness']) * 12  # metros para inches
+                        cursor.execute(f"INSERT INTO RoofIndex (nIndex, szName, fOverallUValue, fOverallWeight, fThickness) VALUES ({roof_id}, '{name}', {u_val}, {weight}, {thickness})")
+                        print(f"  RoofIndex: {roof_id} = {name}")
 
             # Actualizar links de schedules, walls, windows, etc.
             cursor.execute("DELETE FROM Space_Schedule_Links")
