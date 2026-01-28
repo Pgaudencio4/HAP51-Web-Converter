@@ -289,8 +289,8 @@ Adiciona dropdowns RSECE a um Excel existente que nao os tenha.
 | 23-26 | INFILTRATION | Metodo, ACH (Clg, Htg, Energy) |
 | 27-39 | FLOORS | Tipo, Area, U-value, etc. |
 | 40-51 | PARTITIONS | Ceiling e Wall partitions |
-| 52-123 | WALLS | 8 paredes x 9 campos cada |
-| 124-147 | ROOFS | 4 coberturas x 6 campos cada |
+| 51-122 | WALLS | 8 paredes x 9 campos cada |
+| 123-146 | ROOFS | 4 coberturas x 6 campos cada |
 
 ### Estrutura das Paredes (9 campos por parede)
 
