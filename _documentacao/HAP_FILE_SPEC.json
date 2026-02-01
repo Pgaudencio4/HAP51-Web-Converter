@@ -1,0 +1,284 @@
+{
+  "format": {
+    "name": "Carrier HAP 5.1",
+    "extension": ".E3A",
+    "type": "ZIP archive",
+    "description": "HVAC load calculation project file"
+  },
+  "archive_contents": [
+    {"file": "HAP51SPC.DAT", "description": "Space definitions", "format": "binary"},
+    {"file": "HAP51A00.DAT", "description": "Air handling systems", "format": "binary"},
+    {"file": "HAP51SCH.DAT", "description": "Schedules", "format": "binary"},
+    {"file": "HAP51WAL.DAT", "description": "Wall constructions", "format": "binary"},
+    {"file": "HAP51WIN.DAT", "description": "Window constructions", "format": "binary"},
+    {"file": "HAP51DOR.DAT", "description": "Door constructions", "format": "binary"},
+    {"file": "HAP51ROF.DAT", "description": "Roof constructions", "format": "binary"},
+    {"file": "HAP51CHL.DAT", "description": "Chillers", "format": "binary"},
+    {"file": "HAP51BLR.DAT", "description": "Boilers", "format": "binary"},
+    {"file": "HAP51TWR.DAT", "description": "Cooling towers", "format": "binary"},
+    {"file": "HAP51P00.DAT", "description": "Plant equipment", "format": "binary"},
+    {"file": "HAP51WTD.DAT", "description": "Design weather", "format": "binary"},
+    {"file": "HAP51WTA.DAT", "description": "Simulation weather", "format": "binary"},
+    {"file": "HAP51INX.MDB", "description": "Project index", "format": "MS Access"},
+    {"file": "HAP51WIZ.MDB", "description": "ASHRAE tables", "format": "MS Access"},
+    {"file": "Project.mdb", "description": "Project database", "format": "MS Access"},
+    {"file": "PROJECT.E3P", "description": "Project config", "format": "INI text"}
+  ],
+  "HAP51SPC_DAT": {
+    "description": "Space (room) definitions file",
+    "record_size": 682,
+    "structure": {
+      "first_record": "Default Space template (offset 0-681)",
+      "user_spaces": "Start at offset 682, each 682 bytes"
+    },
+    "byte_order": "little-endian",
+    "fields": {
+      "confirmed": [
+        {
+          "name": "space_name",
+          "offset": 0,
+          "size": 24,
+          "type": "char[]",
+          "encoding": "latin-1",
+          "description": "Space name, null-terminated"
+        },
+        {
+          "name": "floor_area",
+          "offset": 24,
+          "size": 4,
+          "type": "float",
+          "unit": "ft²",
+          "to_metric": {"multiply": 0.0929, "result_unit": "m²"}
+        },
+        {
+          "name": "ceiling_height",
+          "offset": 28,
+          "size": 4,
+          "type": "float",
+          "unit": "ft",
+          "to_metric": {"multiply": 0.3048, "result_unit": "m"}
+        },
+        {
+          "name": "building_weight",
+          "offset": 32,
+          "size": 4,
+          "type": "float",
+          "unit": "lb/ft²",
+          "to_metric": {"multiply": 4.8824, "result_unit": "kg/m²"}
+        },
+        {
+          "name": "oa_auxiliary",
+          "offset": 44,
+          "size": 2,
+          "type": "bytes",
+          "description": "OA auxiliary data, non-zero for L/s and L/s/person units"
+        },
+        {
+          "name": "oa_internal_value",
+          "offset": 46,
+          "size": 4,
+          "type": "float",
+          "description": "Encoded OA value, requires conversion formula"
+        },
+        {
+          "name": "oa_unit_code",
+          "offset": 50,
+          "size": 2,
+          "type": "uint16",
+          "values": {
+            "1": "L/s",
+            "2": "L/s/m²",
+            "3": "L/s/person",
+            "4": "%"
+          }
+        },
+        {
+          "name": "sensible_heat_ratio",
+          "offset": 472,
+          "size": 4,
+          "type": "float",
+          "unit": "decimal",
+          "range": "0.0-1.0"
+        },
+        {
+          "name": "cooling_setpoint",
+          "offset": 476,
+          "size": 4,
+          "type": "float",
+          "unit": "°F",
+          "to_metric": {"formula": "(x-32)/1.8", "result_unit": "°C"}
+        },
+        {
+          "name": "cooling_rh",
+          "offset": 480,
+          "size": 4,
+          "type": "float",
+          "unit": "%"
+        },
+        {
+          "name": "heating_setpoint",
+          "offset": 484,
+          "size": 4,
+          "type": "float",
+          "unit": "°F",
+          "to_metric": {"formula": "(x-32)/1.8", "result_unit": "°C"}
+        },
+        {
+          "name": "heating_rh",
+          "offset": 488,
+          "size": 4,
+          "type": "float",
+          "unit": "%"
+        },
+        {
+          "name": "occupancy",
+          "offset": 580,
+          "size": 4,
+          "type": "float",
+          "unit": "people"
+        },
+        {
+          "name": "lighting_power",
+          "offset": 606,
+          "size": 4,
+          "type": "float",
+          "unit": "W"
+        },
+        {
+          "name": "equipment_density",
+          "offset": 656,
+          "size": 4,
+          "type": "float",
+          "unit": "W/ft²",
+          "to_metric": {"multiply": 10.764, "result_unit": "W/m²"}
+        }
+      ],
+      "unknown": [
+        {"offset": 36, "size": 4, "notes": "Flags or type indicator, typical value: 4"},
+        {"offset": 596, "size": 4, "notes": "Unknown factor, typical value: ~0.48"},
+        {"offset": "72-250", "notes": "Wall/window references by direction"}
+      ],
+      "not_found": [
+        "Sensible W/person (may be in Activity Level reference)",
+        "Latent W/person (may be in Activity Level reference)",
+        "Task Lighting W/m²",
+        "Misc Sensible Load",
+        "Misc Latent Load",
+        "Infiltration Rate"
+      ]
+    }
+  },
+  "oa_conversion": {
+    "description": "Outdoor Air Requirement value encoding/decoding",
+    "read": {
+      "1_Ls": {
+        "formula": "float * 31.0336 / 2.11888",
+        "result_unit": "L/s"
+      },
+      "2_Ls_m2": {
+        "formula": "float * 3.8484 / 0.19685",
+        "result_unit": "L/s/m²"
+      },
+      "3_Ls_person": {
+        "formula": "float * 4.1046 / 2.11888",
+        "result_unit": "L/s/person"
+      },
+      "4_percent": {
+        "formula": "float * 28.5714",
+        "result_unit": "%"
+      }
+    },
+    "write": {
+      "1_Ls": {
+        "formula": "value * 2.11888 / 31.0336",
+        "input_unit": "L/s"
+      },
+      "2_Ls_m2": {
+        "formula": "value * 0.19685 / 3.8484",
+        "input_unit": "L/s/m²"
+      },
+      "3_Ls_person": {
+        "formula": "value * 2.11888 / 4.1046",
+        "input_unit": "L/s/person"
+      },
+      "4_percent": {
+        "formula": "value / 28.5714",
+        "input_unit": "%"
+      }
+    },
+    "validation_tests": [
+      {"input": 50, "unit_code": 1, "unit": "L/s", "expected_float": 3.4138, "verified": true},
+      {"input": 50, "unit_code": 2, "unit": "L/s/m²", "expected_float": 2.5576, "verified": true},
+      {"input": 5, "unit_code": 3, "unit": "L/s/person", "expected_float": 2.5811, "verified": true},
+      {"input": 50, "unit_code": 4, "unit": "%", "expected_float": 1.75, "verified": true}
+    ]
+  },
+  "unit_conversions": {
+    "length": {
+      "ft_to_m": 0.3048,
+      "m_to_ft": 3.28084
+    },
+    "area": {
+      "ft2_to_m2": 0.0929,
+      "m2_to_ft2": 10.7639
+    },
+    "temperature": {
+      "f_to_c": "(F - 32) / 1.8",
+      "c_to_f": "C * 1.8 + 32"
+    },
+    "airflow": {
+      "cfm_to_Ls": 0.4719,
+      "Ls_to_cfm": 2.11888,
+      "cfm_ft2_to_Ls_m2": 5.0799,
+      "Ls_m2_to_cfm_ft2": 0.19685
+    },
+    "power": {
+      "btu_hr_to_W": 0.2931,
+      "W_to_btu_hr": 3.412,
+      "W_ft2_to_W_m2": 10.764
+    },
+    "mass": {
+      "lb_ft2_to_kg_m2": 4.8824
+    }
+  },
+  "binary_examples": {
+    "50_Ls": {
+      "hex": "00A06A7C5A400100",
+      "bytes_44_45": "00 A0",
+      "bytes_46_49": "6A 7C 5A 40",
+      "bytes_50_51": "01 00",
+      "float_value": 3.4138,
+      "unit_code": 1,
+      "decoded_value": 50.0,
+      "unit": "L/s"
+    },
+    "50_Ls_m2": {
+      "hex": "00005FAF23400200",
+      "float_value": 2.5576,
+      "unit_code": 2,
+      "decoded_value": 50.0,
+      "unit": "L/s/m²"
+    },
+    "5_Ls_person": {
+      "hex": "0060553025400300",
+      "float_value": 2.5811,
+      "unit_code": 3,
+      "decoded_value": 5.0,
+      "unit": "L/s/person"
+    },
+    "50_percent": {
+      "hex": "00000000E03F0400",
+      "float_value": 1.75,
+      "unit_code": 4,
+      "decoded_value": 50.0,
+      "unit": "%"
+    }
+  },
+  "metadata": {
+    "version": "1.0",
+    "created": "2026-01-26",
+    "last_updated": "2026-01-26",
+    "status": "partial - more fields to decode",
+    "software_version": "Carrier HAP 5.1"
+  }
+}

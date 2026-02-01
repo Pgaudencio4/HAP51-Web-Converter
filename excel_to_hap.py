@@ -44,7 +44,8 @@ DIRECTION_CODES = {
     'N': 1, 'NNE': 2, 'NE': 3, 'ENE': 4,
     'E': 5, 'ESE': 6, 'SE': 7, 'SSE': 8,
     'S': 9, 'SSW': 10, 'SW': 11, 'WSW': 12,
-    'W': 13, 'WNW': 14, 'NW': 15, 'NNW': 16
+    'W': 13, 'WNW': 14, 'NW': 15, 'NNW': 16,
+    'H': 17, 'HORIZ': 17, 'HORIZONTAL': 17  # Horizontal para coberturas
 }
 
 ACTIVITY_CODES = {
@@ -218,45 +219,46 @@ def read_excel_spaces(excel_path):
         space['misc_sens_sch'] = ws.cell(row=row, column=21).value
         space['misc_lat_sch'] = ws.cell(row=row, column=22).value
 
-        # INFILTRATION (cols 23-25)
-        space['ach_clg'] = ws.cell(row=row, column=23).value
-        space['ach_htg'] = ws.cell(row=row, column=24).value
-        space['ach_energy'] = ws.cell(row=row, column=25).value
+        # INFILTRATION (cols 23-26)
+        space['infil_method'] = ws.cell(row=row, column=23).value
+        space['ach_clg'] = ws.cell(row=row, column=24).value
+        space['ach_htg'] = ws.cell(row=row, column=25).value
+        space['ach_energy'] = ws.cell(row=row, column=26).value
 
-        # FLOORS (cols 26-38)
-        space['floor_type'] = ws.cell(row=row, column=26).value
-        space['floor_area'] = ws.cell(row=row, column=27).value
-        space['floor_u'] = ws.cell(row=row, column=28).value
-        space['floor_perim'] = ws.cell(row=row, column=29).value
-        space['floor_edge_r'] = ws.cell(row=row, column=30).value
-        space['floor_depth'] = ws.cell(row=row, column=31).value
-        space['bsmt_u'] = ws.cell(row=row, column=32).value
-        space['wall_ins_r'] = ws.cell(row=row, column=33).value
-        space['ins_depth'] = ws.cell(row=row, column=34).value
-        space['floor_unc_max'] = ws.cell(row=row, column=35).value
-        space['floor_out_max'] = ws.cell(row=row, column=36).value
-        space['floor_unc_min'] = ws.cell(row=row, column=37).value
-        space['floor_out_min'] = ws.cell(row=row, column=38).value
+        # FLOORS (cols 27-39)
+        space['floor_type'] = ws.cell(row=row, column=27).value
+        space['floor_area'] = ws.cell(row=row, column=28).value
+        space['floor_u'] = ws.cell(row=row, column=29).value
+        space['floor_perim'] = ws.cell(row=row, column=30).value
+        space['floor_edge_r'] = ws.cell(row=row, column=31).value
+        space['floor_depth'] = ws.cell(row=row, column=32).value
+        space['bsmt_u'] = ws.cell(row=row, column=33).value
+        space['wall_ins_r'] = ws.cell(row=row, column=34).value
+        space['ins_depth'] = ws.cell(row=row, column=35).value
+        space['floor_unc_max'] = ws.cell(row=row, column=36).value
+        space['floor_out_max'] = ws.cell(row=row, column=37).value
+        space['floor_unc_min'] = ws.cell(row=row, column=38).value
+        space['floor_out_min'] = ws.cell(row=row, column=39).value
 
-        # PARTITIONS - Ceiling (cols 39-44)
-        space['ceil_area'] = ws.cell(row=row, column=39).value
-        space['ceil_u'] = ws.cell(row=row, column=40).value
-        space['ceil_unc_max'] = ws.cell(row=row, column=41).value
-        space['ceil_out_max'] = ws.cell(row=row, column=42).value
-        space['ceil_unc_min'] = ws.cell(row=row, column=43).value
-        space['ceil_out_min'] = ws.cell(row=row, column=44).value
+        # PARTITIONS - Ceiling (cols 40-45)
+        space['ceil_area'] = ws.cell(row=row, column=40).value
+        space['ceil_u'] = ws.cell(row=row, column=41).value
+        space['ceil_unc_max'] = ws.cell(row=row, column=42).value
+        space['ceil_out_max'] = ws.cell(row=row, column=43).value
+        space['ceil_unc_min'] = ws.cell(row=row, column=44).value
+        space['ceil_out_min'] = ws.cell(row=row, column=45).value
 
-        # PARTITIONS - Wall (cols 45-50)
-        space['wall_part_area'] = ws.cell(row=row, column=45).value
-        space['wall_part_u'] = ws.cell(row=row, column=46).value
-        space['wall_unc_max'] = ws.cell(row=row, column=47).value
-        space['wall_out_max'] = ws.cell(row=row, column=48).value
-        space['wall_unc_min'] = ws.cell(row=row, column=49).value
-        space['wall_out_min'] = ws.cell(row=row, column=50).value
+        # PARTITIONS - Wall (cols 46-51)
+        space['wall_part_area'] = ws.cell(row=row, column=46).value
+        space['wall_part_u'] = ws.cell(row=row, column=47).value
+        space['wall_unc_max'] = ws.cell(row=row, column=48).value
+        space['wall_out_max'] = ws.cell(row=row, column=49).value
+        space['wall_unc_min'] = ws.cell(row=row, column=50).value
+        space['wall_out_min'] = ws.cell(row=row, column=51).value
 
-        # WALLS (8 walls x 9 cols = cols 51-122)
+        # WALLS (8 walls x 9 cols = cols 52-123)
         space['walls'] = []
-        wall_start = 51
+        wall_start = 52
         for w in range(8):
             col = wall_start + w * 9
             wall = {
@@ -272,9 +274,9 @@ def read_excel_spaces(excel_path):
             }
             space['walls'].append(wall)
 
-        # ROOFS (4 roofs x 6 cols = cols 123-146)
+        # ROOFS (4 roofs x 6 cols = cols 124-147)
         space['roofs'] = []
-        roof_start = 123
+        roof_start = 124
         for r in range(4):
             col = roof_start + r * 6
             roof = {
@@ -330,12 +332,11 @@ def read_excel_spaces(excel_path):
             if id_val and name:
                 types['roofs'][str(name).strip()] = int(id_val)
 
-        # Schedules (cols 13-14)
-        for row in range(3, ws_tipos.max_row + 1):
-            id_val = ws_tipos.cell(row=row, column=13).value
-            name = ws_tipos.cell(row=row, column=14).value
-            if id_val and name:
-                types['schedules'][str(name).strip()] = int(id_val)
+        # Schedules (cols 13-14) - IGNORADO!
+        # Os IDs na sheet Tipos podem estar errados.
+        # Os schedules sao carregados directamente do modelo base (HAP51SCH.DAT)
+        # para garantir que os IDs estao correctos.
+        pass
 
     # Ler tipos das sheets Windows, Walls, Roofs (dados para criar no HAP)
     type_definitions = {
@@ -495,39 +496,64 @@ def create_space_binary(space, types, template_record):
                 struct.pack_into('<H', data, roof_start + 10, get_type_id(roof.get('sky'), types['windows'], 0))
                 struct.pack_into('<H', data, roof_start + 12, safe_int(roof.get('sky_qty')))
 
-    # PARTITIONS - Ceiling (440-466)
-    struct.pack_into('<H', data, 440, 1)  # Type 1 = Ceiling
-    struct.pack_into('<f', data, 442, m2_to_ft2(space.get('ceil_area')))
-    struct.pack_into('<f', data, 446, u_si_to_ip(space.get('ceil_u')))
-    struct.pack_into('<f', data, 450, c_to_f(space.get('ceil_unc_max')))
-    struct.pack_into('<f', data, 454, c_to_f(space.get('ceil_out_max')))
-    struct.pack_into('<f', data, 458, c_to_f(space.get('ceil_unc_min')))
-    struct.pack_into('<f', data, 462, c_to_f(space.get('ceil_out_min')))
+    # PARTITIONS - Ceiling (440-466) - só escreve se houver dados
+    if space.get('ceil_area'):
+        struct.pack_into('<H', data, 440, 1)  # Type 1 = Ceiling
+        struct.pack_into('<f', data, 442, m2_to_ft2(space.get('ceil_area')))
+        if space.get('ceil_u'):
+            struct.pack_into('<f', data, 446, u_si_to_ip(space.get('ceil_u')))
+        if space.get('ceil_unc_max'):
+            struct.pack_into('<f', data, 450, c_to_f(space.get('ceil_unc_max')))
+        if space.get('ceil_out_max'):
+            struct.pack_into('<f', data, 454, c_to_f(space.get('ceil_out_max')))
+        if space.get('ceil_unc_min'):
+            struct.pack_into('<f', data, 458, c_to_f(space.get('ceil_unc_min')))
+        if space.get('ceil_out_min'):
+            struct.pack_into('<f', data, 462, c_to_f(space.get('ceil_out_min')))
 
-    # PARTITIONS - Wall (466-492)
-    struct.pack_into('<H', data, 466, 2)  # Type 2 = Wall
-    struct.pack_into('<f', data, 468, m2_to_ft2(space.get('wall_part_area')))
-    struct.pack_into('<f', data, 472, u_si_to_ip(space.get('wall_part_u')))
-    struct.pack_into('<f', data, 476, c_to_f(space.get('wall_unc_max')))
-    struct.pack_into('<f', data, 480, c_to_f(space.get('wall_out_max')))
-    struct.pack_into('<f', data, 484, c_to_f(space.get('wall_unc_min')))
-    struct.pack_into('<f', data, 488, c_to_f(space.get('wall_out_min')))
+    # PARTITIONS - Wall (466-492) - só escreve se houver dados
+    if space.get('wall_part_area'):
+        struct.pack_into('<H', data, 466, 2)  # Type 2 = Wall
+        struct.pack_into('<f', data, 468, m2_to_ft2(space.get('wall_part_area')))
+        if space.get('wall_part_u'):
+            struct.pack_into('<f', data, 472, u_si_to_ip(space.get('wall_part_u')))
+        if space.get('wall_unc_max'):
+            struct.pack_into('<f', data, 476, c_to_f(space.get('wall_unc_max')))
+        if space.get('wall_out_max'):
+            struct.pack_into('<f', data, 480, c_to_f(space.get('wall_out_max')))
+        if space.get('wall_unc_min'):
+            struct.pack_into('<f', data, 484, c_to_f(space.get('wall_unc_min')))
+        if space.get('wall_out_min'):
+            struct.pack_into('<f', data, 488, c_to_f(space.get('wall_out_min')))
 
-    # FLOOR (492-542)
-    floor_type = FLOOR_TYPE_CODES.get(space.get('floor_type'), 2)
-    struct.pack_into('<H', data, 492, floor_type)
-    struct.pack_into('<f', data, 494, m2_to_ft2(space.get('floor_area')))
-    struct.pack_into('<f', data, 498, u_si_to_ip(space.get('floor_u')))
-    struct.pack_into('<f', data, 502, m_to_ft(space.get('floor_perim')))
-    struct.pack_into('<f', data, 506, r_si_to_ip(space.get('floor_edge_r')))
-    struct.pack_into('<f', data, 510, m_to_ft(space.get('floor_depth')))
-    struct.pack_into('<f', data, 514, u_si_to_ip(space.get('bsmt_u')))
-    struct.pack_into('<f', data, 518, r_si_to_ip(space.get('wall_ins_r')))
-    struct.pack_into('<f', data, 522, m_to_ft(space.get('ins_depth')))
-    struct.pack_into('<f', data, 526, c_to_f(space.get('floor_unc_max')))
-    struct.pack_into('<f', data, 530, c_to_f(space.get('floor_out_max')))
-    struct.pack_into('<f', data, 534, c_to_f(space.get('floor_unc_min')))
-    struct.pack_into('<f', data, 538, c_to_f(space.get('floor_out_min')))
+    # FLOOR (492-542) - só escreve se houver dados
+    if space.get('floor_type'):
+        floor_type = FLOOR_TYPE_CODES.get(space.get('floor_type'), 2)
+        struct.pack_into('<H', data, 492, floor_type)
+        if space.get('floor_area'):
+            struct.pack_into('<f', data, 494, m2_to_ft2(space.get('floor_area')))
+        if space.get('floor_u'):
+            struct.pack_into('<f', data, 498, u_si_to_ip(space.get('floor_u')))
+        if space.get('floor_perim'):
+            struct.pack_into('<f', data, 502, m_to_ft(space.get('floor_perim')))
+        if space.get('floor_edge_r'):
+            struct.pack_into('<f', data, 506, r_si_to_ip(space.get('floor_edge_r')))
+        if space.get('floor_depth'):
+            struct.pack_into('<f', data, 510, m_to_ft(space.get('floor_depth')))
+        if space.get('bsmt_u'):
+            struct.pack_into('<f', data, 514, u_si_to_ip(space.get('bsmt_u')))
+        if space.get('wall_ins_r'):
+            struct.pack_into('<f', data, 518, r_si_to_ip(space.get('wall_ins_r')))
+        if space.get('ins_depth'):
+            struct.pack_into('<f', data, 522, m_to_ft(space.get('ins_depth')))
+        if space.get('floor_unc_max'):
+            struct.pack_into('<f', data, 526, c_to_f(space.get('floor_unc_max')))
+        if space.get('floor_out_max'):
+            struct.pack_into('<f', data, 530, c_to_f(space.get('floor_out_max')))
+        if space.get('floor_unc_min'):
+            struct.pack_into('<f', data, 534, c_to_f(space.get('floor_unc_min')))
+        if space.get('floor_out_min'):
+            struct.pack_into('<f', data, 538, c_to_f(space.get('floor_out_min')))
 
     # INFILTRATION (554-572)
     struct.pack_into('<H', data, 554, 2)  # Flag ACH mode
@@ -546,14 +572,14 @@ def create_space_binary(space, types, template_record):
     people_sch = get_type_id(space.get('people_sch'), types['schedules'])
     struct.pack_into('<H', data, 594, people_sch)
 
-    # LIGHTING (600-618)
+    # LIGHTING (600-623)
     struct.pack_into('<f', data, 600, safe_float(space.get('task_light')))
     fixture = FIXTURE_CODES.get(space.get('fixture'), 0)
     struct.pack_into('<H', data, 604, fixture)
     struct.pack_into('<f', data, 606, safe_float(space.get('general_light')))
     struct.pack_into('<f', data, 610, safe_float(space.get('ballast'), 1.0))
     light_sch = get_type_id(space.get('light_sch'), types['schedules'])
-    struct.pack_into('<H', data, 616, light_sch)
+    struct.pack_into('<H', data, 616, light_sch)  # Offset 616 (confirmado no README)
 
     # MISC (632-646)
     struct.pack_into('<f', data, 632, w_to_btu(space.get('misc_sens')))
@@ -611,8 +637,12 @@ def main():
         with open(spc_path, 'rb') as f:
             spc_data = f.read()
 
-        template_record = spc_data[RECORD_SIZE:RECORD_SIZE*2]  # Primeiro espaço como template
         default_record = spc_data[0:RECORD_SIZE]  # Record 0 (default)
+        # Usar o default como template se só houver 1 registo
+        if len(spc_data) >= RECORD_SIZE * 2:
+            template_record = spc_data[RECORD_SIZE:RECORD_SIZE*2]
+        else:
+            template_record = default_record
 
         print(f"Template record size: {len(template_record)} bytes")
 
@@ -769,6 +799,25 @@ def main():
 
             # Limpar SpaceIndex existente
             cursor.execute("DELETE FROM SpaceIndex")
+
+            # Corrigir ScheduleIndex (MDB pode ter nomes deslocados)
+            # Ler nomes correctos do HAP51SCH.DAT e actualizar MDB
+            cursor.execute("DELETE FROM ScheduleIndex")
+            sch_path_mdb = os.path.join(temp_dir, 'HAP51SCH.DAT')
+            with open(sch_path_mdb, 'rb') as f:
+                sch_data_mdb = f.read()
+            SCHEDULE_RECORD_SIZE_MDB = 792
+            num_sch = len(sch_data_mdb) // SCHEDULE_RECORD_SIZE_MDB
+            sch_count = 0
+            for i in range(num_sch):
+                sch_offset = i * SCHEDULE_RECORD_SIZE_MDB
+                sch_name = sch_data_mdb[sch_offset:sch_offset+24].rstrip(b'\x00').decode('latin-1', errors='ignore').strip()
+                if sch_name and i > 0:  # MDB nao permite nIndex=0
+                    # Escapar aspas simples no nome
+                    sch_name_safe = sch_name.replace("'", "''")
+                    cursor.execute(f"INSERT INTO ScheduleIndex (nIndex, szName) VALUES ({i}, '{sch_name_safe}')")
+                    sch_count += 1
+            print(f"  ScheduleIndex: {sch_count} schedules actualizados")
 
             # Inserir novos espaços
             # SpaceIndex tem colunas: nIndex, szName, fFloorArea, fNumPeople, fLightingDensity
