@@ -472,11 +472,12 @@ def create_space_binary(space, types, template_record):
                 struct.pack_into('<f', data, wall_start + 2, m2_to_ft2(wall.get('area')))
                 struct.pack_into('<H', data, wall_start + 6, get_type_id(wall.get('type'), types['walls']))
                 struct.pack_into('<H', data, wall_start + 8, get_type_id(wall.get('win1'), types['windows'], 0))
-                struct.pack_into('<H', data, wall_start + 10, safe_int(wall.get('win1_qty')))
-                struct.pack_into('<H', data, wall_start + 12, get_type_id(wall.get('win2'), types['windows'], 0))
-                struct.pack_into('<H', data, wall_start + 14, safe_int(wall.get('win2_qty')))
-                struct.pack_into('<H', data, wall_start + 16, get_type_id(wall.get('door'), types['doors'], 0))
-                struct.pack_into('<H', data, wall_start + 18, safe_int(wall.get('door_qty')))
+                # +10 reservado (não usar)
+                struct.pack_into('<H', data, wall_start + 12, safe_int(wall.get('win1_qty')))  # Win1 Qty em +12!
+                struct.pack_into('<H', data, wall_start + 14, get_type_id(wall.get('win2'), types['windows'], 0))
+                struct.pack_into('<H', data, wall_start + 16, safe_int(wall.get('win2_qty')))
+                struct.pack_into('<H', data, wall_start + 18, get_type_id(wall.get('door'), types['doors'], 0))
+                struct.pack_into('<H', data, wall_start + 20, safe_int(wall.get('door_qty')))
 
     # ROOFS (344-440)
     for i in range(4):

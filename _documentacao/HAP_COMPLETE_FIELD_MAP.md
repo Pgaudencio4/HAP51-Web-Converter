@@ -57,35 +57,42 @@ def encode_oa(user_value, unit_code):
 
 ---
 
-## WALLS, WINDOWS, DOORS (Bytes 72-359)
+## WALLS, WINDOWS, DOORS (Bytes 72-343)
 
-8 direction blocks, 36 bytes each:
+8 direction blocks, **34 bytes each** (CONFIRMADO 2026-02-01):
 
 | Offset | Direction |
 |--------|-----------|
-| 72-107 | South (S) |
-| 108-143 | Southwest (SW) |
-| 144-179 | West (W) |
-| 180-215 | Northwest (NW) |
-| 216-251 | North (N) |
-| 252-287 | Northeast (NE) |
-| 288-323 | East (E) |
-| 324-359 | Southeast (SE) |
+| 72-105 | South (S) |
+| 106-139 | Southwest (SW) |
+| 140-173 | West (W) |
+| 174-207 | Northwest (NW) |
+| 208-241 | North (N) |
+| 242-275 | Northeast (NE) |
+| 276-309 | East (E) |
+| 310-343 | Southeast (SE) |
 
-**Structure of each 36-byte direction block:**
+**Structure of each 34-byte direction block (CONFIRMADO 2026-02-01):**
 
 | Offset | Size | Type | Field | Description |
 |--------|------|------|-------|-------------|
-| +0 | 2 | uint16 | Wall Type ID | Reference to HAP51WAL.DAT |
+| +0 | 2 | uint16 | Exposure Code | Direction code (1=N, 5=E, 9=S, 13=W, etc.) |
 | +2 | 4 | float | Gross Wall Area | ft² (× 0.0929 = m²) |
-| +6 | 2 | uint16 | Flag | 1 if wall exists, 0 otherwise |
+| +6 | 2 | uint16 | Wall Type ID | Reference to HAP51WAL.DAT |
 | +8 | 2 | uint16 | Window 1 Type ID | Reference to HAP51WIN.DAT |
-| +10 | 2 | uint16 | Window 1 Quantity | Number of windows |
-| +12 | 2 | uint16 | Window 2 Type ID | Second window type |
-| +14 | 2 | uint16 | Window 2 Quantity | Number of windows |
-| +16 | 2 | uint16 | Door Type ID | Reference to HAP51DOR.DAT |
-| +18 | 2 | uint16 | Door Quantity | Number of doors |
-| +20-35 | 16 | bytes | Additional data | Shades, overhangs, etc. |
+| +10 | 2 | uint16 | Reserved/Legacy | Usually 0, may be 1 for Sample Window |
+| +12 | 2 | uint16 | **Window 1 Quantity** | Number of windows (IMPORTANTE!) |
+| +14 | 2 | uint16 | Window 2 Type ID | Second window type |
+| +16 | 2 | uint16 | Reserved | Usually 0 |
+| +18 | 2 | uint16 | **Window 2 Quantity** | Number of windows |
+| +20 | 2 | uint16 | Door Type ID | Reference to HAP51DOR.DAT |
+| +22 | 2 | uint16 | Door Quantity | Number of doors |
+| +24-33 | 10 | bytes | Additional data | Shades, overhangs, etc. |
+
+**NOTA IMPORTANTE:**
+- WALL_BLOCK_SIZE = 34 bytes (não 36!)
+- O Window Quantity está no offset +12, NÃO no +10!
+- O offset +10 pode ter valor 1 em ficheiros antigos com Sample Window Assembly, mas deve ser 0 para janelas novas.
 
 **Note on Window References:**
 - Window Type IDs reference records in HAP51WIN.DAT
