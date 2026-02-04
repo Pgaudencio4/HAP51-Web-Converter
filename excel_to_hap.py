@@ -557,11 +557,15 @@ def create_space_binary(space, types, template_record):
             struct.pack_into('<f', data, 538, c_to_f(space.get('floor_out_min')))
 
     # INFILTRATION (554-572)
-    struct.pack_into('<H', data, 554, 2)  # Flag ACH mode
+    # NOTA: Offsets 554, 560, 566 são SCHEDULE IDs, NÃO flags!
+    # Usar 0 para usar o Sample Schedule (schedule por defeito)
+    # ou obter do template se disponível
+    infil_sch_id = 0  # Default: Sample Schedule
+    struct.pack_into('<H', data, 554, infil_sch_id)  # Infiltration Schedule ID 1
     struct.pack_into('<f', data, 556, safe_float(space.get('ach_clg')))
-    struct.pack_into('<H', data, 560, 2)  # Flag ACH mode
+    struct.pack_into('<H', data, 560, infil_sch_id)  # Infiltration Schedule ID 2
     struct.pack_into('<f', data, 562, safe_float(space.get('ach_htg')))
-    struct.pack_into('<H', data, 566, 2)  # Flag ACH mode
+    struct.pack_into('<H', data, 566, infil_sch_id)  # Infiltration Schedule ID 3
     struct.pack_into('<f', data, 568, safe_float(space.get('ach_energy')))
 
     # PEOPLE (580-596)
@@ -692,31 +696,19 @@ def main():
             print(f"HAP51WIN.DAT: {len(win_data)} bytes ({len(win_data) // WINDOW_RECORD_SIZE} windows)")
 
         # Criar novos tipos de Walls se definidos no Excel
-        # Nota: Walls são assemblies complexos com layers. Vamos copiar o template e modificar.
+        # Nota: Walls são assemblies complexos com layers. Tamanho fixo = 3187 bytes
+        WALL_ASSEMBLY_SIZE = 3187  # Tamanho fixo de cada assembly (documentado)
+
         if type_definitions['walls']:
             print("\n--- Criando Walls ---")
             wal_path = os.path.join(temp_dir, 'HAP51WAL.DAT')
             with open(wal_path, 'rb') as f:
                 wal_data = bytearray(f.read())
 
-            # Descobrir tamanho do primeiro registo (template)
-            # Procurar onde começa um novo nome após o primeiro
-            wall_template_size = len(wal_data)  # Se só há 1, usar tudo
-            for i in range(256, min(2000, len(wal_data))):
-                # Procurar início de novo registo (nome com letras)
-                if wal_data[i:i+1].isalpha() and wal_data[i+1:i+2].isalpha():
-                    chunk = wal_data[i:i+20]
-                    if all(32 <= b <= 126 or b == 0 for b in chunk[:10]):
-                        wall_template_size = i
-                        break
-
-            # Se não encontrou segundo registo, usar um tamanho estimado
-            if wall_template_size == len(wal_data):
-                wall_template_size = 280  # Tamanho mínimo estimado
-
+            # Usar tamanho fixo de 3187 bytes por assembly
+            wall_template_size = WALL_ASSEMBLY_SIZE
             wall_template = wal_data[0:wall_template_size]
-            # Contar registos existentes baseado no tamanho
-            num_existing_walls = len(wal_data) // wall_template_size if wall_template_size > 0 else 1
+            num_existing_walls = len(wal_data) // wall_template_size
 
             for i, wall_def in enumerate(type_definitions['walls']):
                 new_wall = bytearray(wall_template)
@@ -737,26 +729,19 @@ def main():
             print(f"HAP51WAL.DAT: {len(wal_data)} bytes")
 
         # Criar novos tipos de Roofs se definidos no Excel
+        # Nota: Roofs têm o mesmo tamanho que Walls = 3187 bytes
+        ROOF_ASSEMBLY_SIZE = 3187  # Tamanho fixo de cada assembly (documentado)
+
         if type_definitions['roofs']:
             print("\n--- Criando Roofs ---")
             rof_path = os.path.join(temp_dir, 'HAP51ROF.DAT')
             with open(rof_path, 'rb') as f:
                 rof_data = bytearray(f.read())
 
-            # Usar mesma lógica dos walls
-            roof_template_size = len(rof_data)
-            for i in range(256, min(2000, len(rof_data))):
-                if rof_data[i:i+1].isalpha() and rof_data[i+1:i+2].isalpha():
-                    chunk = rof_data[i:i+20]
-                    if all(32 <= b <= 126 or b == 0 for b in chunk[:10]):
-                        roof_template_size = i
-                        break
-
-            if roof_template_size == len(rof_data):
-                roof_template_size = 280
-
+            # Usar tamanho fixo de 3187 bytes por assembly
+            roof_template_size = ROOF_ASSEMBLY_SIZE
             roof_template = rof_data[0:roof_template_size]
-            num_existing_roofs = len(rof_data) // roof_template_size if roof_template_size > 0 else 1
+            num_existing_roofs = len(rof_data) // roof_template_size
 
             for i, roof_def in enumerate(type_definitions['roofs']):
                 new_roof = bytearray(roof_template)
@@ -830,6 +815,12 @@ def main():
                 lighting = safe_float(space.get('general_light', 0))
                 cursor.execute(f"INSERT INTO SpaceIndex (nIndex, szName, fFloorArea, fNumPeople, fLightingDensity) VALUES ({space_id}, '{name}', {area_ft2}, {people}, {lighting})")
                 print(f"  SpaceIndex: {space_id} = {name}")
+
+            # Limpar índices existentes (CRÍTICO: evita "chaves duplicadas")
+            cursor.execute("DELETE FROM WindowIndex WHERE nIndex > 0")
+            cursor.execute("DELETE FROM WallIndex WHERE nIndex > 0")
+            cursor.execute("DELETE FROM RoofIndex WHERE nIndex > 0")
+            print("  Índices WindowIndex/WallIndex/RoofIndex limpos")
 
             # Inserir novas Windows no WindowIndex
             # WindowIndex: nIndex, szName, fOverallUValue, fOverallShadeCo, fHeight, fWidth
@@ -947,8 +938,11 @@ def main():
 
         except ImportError:
             print("  AVISO: pyodbc não disponível - MDB não actualizado")
+            print("  *** O HAP pode mostrar nomes de espaços incorrectos! ***")
         except Exception as e:
             print(f"  ERRO MDB: {e}")
+            print("  *** ATENÇÃO: O MDB não foi actualizado correctamente! ***")
+            print("  *** O HAP pode mostrar nomes de espaços do template anterior! ***")
 
         # Criar ZIP final
         print("\n--- Criando ficheiro E3A ---")
