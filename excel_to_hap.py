@@ -557,11 +557,15 @@ def create_space_binary(space, types, template_record):
             struct.pack_into('<f', data, 538, c_to_f(space.get('floor_out_min')))
 
     # INFILTRATION (554-572)
-    struct.pack_into('<H', data, 554, 2)  # Flag ACH mode
+    # NOTA: Offsets 554, 560, 566 são SCHEDULE IDs, NÃO flags!
+    # Usar 0 para usar o Sample Schedule (schedule por defeito)
+    # ou obter do template se disponível
+    infil_sch_id = 0  # Default: Sample Schedule
+    struct.pack_into('<H', data, 554, infil_sch_id)  # Infiltration Schedule ID 1
     struct.pack_into('<f', data, 556, safe_float(space.get('ach_clg')))
-    struct.pack_into('<H', data, 560, 2)  # Flag ACH mode
+    struct.pack_into('<H', data, 560, infil_sch_id)  # Infiltration Schedule ID 2
     struct.pack_into('<f', data, 562, safe_float(space.get('ach_htg')))
-    struct.pack_into('<H', data, 566, 2)  # Flag ACH mode
+    struct.pack_into('<H', data, 566, infil_sch_id)  # Infiltration Schedule ID 3
     struct.pack_into('<f', data, 568, safe_float(space.get('ach_energy')))
 
     # PEOPLE (580-596)
