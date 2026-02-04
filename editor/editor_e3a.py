@@ -88,18 +88,18 @@ def extract_for_editing(e3a_path, output_xlsx):
         return
     print(result.stdout)
 
-    # Carregar template do comparador
-    template_path = os.path.join(os.path.dirname(__file__), '..', 'comparador', 'Template_Comparacao_v7.xlsx')
+    # Carregar template do comparador (mesmo formato do conversor)
+    template_path = os.path.join(os.path.dirname(__file__), '..', 'comparador', 'Template_Comparacao.xlsx')
 
     if not os.path.exists(template_path):
         print(f"Template não encontrado: {template_path}")
         print("A criar template...")
         # Criar template se não existir
-        criar_template_path = os.path.join(os.path.dirname(__file__), '..', 'comparador', 'criar_template_v7.py')
+        criar_template_path = os.path.join(os.path.dirname(__file__), '..', 'comparador', 'criar_template_comparacao.py')
         spec2 = importlib.util.spec_from_file_location("criar_template", criar_template_path)
         criar_mod = importlib.util.module_from_spec(spec2)
         spec2.loader.exec_module(criar_mod)
-        criar_mod.main()
+        criar_mod.criar_template()
 
     # Carregar template
     wb_template = openpyxl.load_workbook(template_path)
