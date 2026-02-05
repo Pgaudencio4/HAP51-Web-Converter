@@ -443,16 +443,22 @@ def extract_walls_assemblies(wal_data):
             # Massa (offset 273, lb/ft² -> kg/m²)
             mass_lb = struct.unpack('<f', wal_data[offset+273:offset+277])[0]
             mass_kg = round(mass_lb * 4.88243, 1) if 0 < mass_lb < 500 else 0
+
+            # Absorptivity (offset 255)
+            absorptivity = struct.unpack('<f', wal_data[offset+255:offset+259])[0]
+            absorptivity = round(absorptivity, 2) if 0 <= absorptivity <= 1 else 0.9
         except:
             u_value_si = 0
             thickness_m = 0
             mass_kg = 0
+            absorptivity = 0.9
 
         walls_detail.append({
             'name': name,
             'u_value': u_value_si,
             'thickness': thickness_m,
             'mass': mass_kg,
+            'absorptivity': absorptivity,
         })
 
     return walls, walls_detail
@@ -486,16 +492,22 @@ def extract_roofs_assemblies(rof_data):
             # Massa (offset 273, lb/ft² -> kg/m²)
             mass_lb = struct.unpack('<f', rof_data[offset+273:offset+277])[0]
             mass_kg = round(mass_lb * 4.88243, 1) if 0 < mass_lb < 1000 else 0
+
+            # Absorptivity (offset 255)
+            absorptivity = struct.unpack('<f', rof_data[offset+255:offset+259])[0]
+            absorptivity = round(absorptivity, 2) if 0 <= absorptivity <= 1 else 0.9
         except:
             u_value_si = 0
             thickness_m = 0
             mass_kg = 0
+            absorptivity = 0.9
 
         roofs_detail.append({
             'name': name,
             'u_value': u_value_si,
             'thickness': thickness_m,
             'mass': mass_kg,
+            'absorptivity': absorptivity,
         })
 
     return roofs, roofs_detail
@@ -797,6 +809,7 @@ def create_walls_sheet(wb, walls_detail):
     ws.cell(3, 2, value='U-Value\n(W/m²K)')
     ws.cell(3, 3, value='Espessura\n(m)')
     ws.cell(3, 4, value='Massa\n(kg/m²)')
+    ws.cell(3, 5, value='Absorptivity')
 
     # Dados
     row = 4
@@ -806,11 +819,12 @@ def create_walls_sheet(wb, walls_detail):
             ws.cell(row, 2, value=wall['u_value'] if wall['u_value'] else '')
             ws.cell(row, 3, value=wall['thickness'] if wall.get('thickness') else '')
             ws.cell(row, 4, value=wall['mass'] if wall.get('mass') else '')
+            ws.cell(row, 5, value=wall.get('absorptivity', 0.9))
             row += 1
 
     # Ajustar colunas
     ws.column_dimensions['A'].width = 30
-    for col in ['B', 'C', 'D']:
+    for col in ['B', 'C', 'D', 'E']:
         ws.column_dimensions[col].width = 12
 
 def create_roofs_sheet(wb, roofs_detail):
@@ -828,6 +842,7 @@ def create_roofs_sheet(wb, roofs_detail):
     ws.cell(3, 2, value='U-Value\n(W/m²K)')
     ws.cell(3, 3, value='Espessura\n(m)')
     ws.cell(3, 4, value='Massa\n(kg/m²)')
+    ws.cell(3, 5, value='Absorptivity')
 
     # Dados
     row = 4
@@ -837,11 +852,12 @@ def create_roofs_sheet(wb, roofs_detail):
             ws.cell(row, 2, value=roof['u_value'] if roof['u_value'] else '')
             ws.cell(row, 3, value=roof['thickness'] if roof.get('thickness') else '')
             ws.cell(row, 4, value=roof['mass'] if roof.get('mass') else '')
+            ws.cell(row, 5, value=roof.get('absorptivity', 0.9))
             row += 1
 
     # Ajustar colunas
     ws.column_dimensions['A'].width = 30
-    for col in ['B', 'C', 'D']:
+    for col in ['B', 'C', 'D', 'E']:
         ws.column_dimensions[col].width = 12
 
 # =============================================================================

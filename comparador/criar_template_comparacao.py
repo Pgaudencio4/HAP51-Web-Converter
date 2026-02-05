@@ -141,7 +141,7 @@ def criar_template():
     # FOLHA WALLS
     # =========================================================================
     ws_wal = wb.create_sheet('Walls')
-    wal_headers = ['Nome', 'U-Value (W/m2K)', 'Espessura (m)', 'Massa (kg/m2)']
+    wal_headers = ['Nome', 'U-Value (W/m2K)', 'Espessura (m)', 'Massa (kg/m2)', 'Absorptivity']
 
     for i, header in enumerate(wal_headers):
         base_col = i * 3 + 1
@@ -164,7 +164,7 @@ def criar_template():
     # FOLHA ROOFS
     # =========================================================================
     ws_rof = wb.create_sheet('Roofs')
-    rof_headers = ['Nome', 'U-Value (W/m2K)', 'Espessura (m)', 'Massa (kg/m2)']
+    rof_headers = ['Nome', 'U-Value (W/m2K)', 'Espessura (m)', 'Massa (kg/m2)', 'Absorptivity']
 
     for i, header in enumerate(rof_headers):
         base_col = i * 3 + 1

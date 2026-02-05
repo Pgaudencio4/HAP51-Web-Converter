@@ -72,27 +72,33 @@ Each space has 8 direction blocks (36 bytes each) for exterior walls and windows
 | E (East) | 288-323 | East-facing wall |
 | SE (Southeast) | 324-359 | Southeast-facing wall |
 
-**Structure of each 36-byte direction block:**
+**Structure of each 34-byte wall block:**
 
 | Offset | Size | Type | Field | Description |
 |--------|------|------|-------|-------------|
-| 0-1 | 2 | uint16 | Wall Type ID | Reference to wall type in HAP51WAL.DAT |
+| 0-1 | 2 | uint16 | Exposure | Direction code (see DIRECTION_CODES) |
 | 2-5 | 4 | float | Gross Wall Area | Wall area in ft² (× 0.0929 = m²) |
-| 6-7 | 2 | uint16 | Unknown | Always 1 when wall exists |
-| 8-9 | 2 | uint16 | Window Type ID | Reference to window type in HAP51WIN.DAT |
-| 10-11 | 2 | uint16 | Unknown | Flag (0 or 1) |
-| 12-35 | 24 | bytes | Additional data | May contain window area, door data |
+| 6-7 | 2 | uint16 | Wall Type ID | Reference to wall assembly in HAP51WAL.DAT |
+| 8-9 | 2 | uint16 | Window 1 ID | Reference to window type in HAP51WIN.DAT |
+| 10-11 | 2 | uint16 | Reserved | Not used |
+| 12-13 | 2 | uint16 | Window 1 Qty | Number of Window 1 |
+| 14-15 | 2 | uint16 | Window 2 ID | Second window type |
+| 16-17 | 2 | uint16 | Window 2 Qty | Number of Window 2 |
+| 18-19 | 2 | uint16 | Door ID | Reference to door type in HAP51DOR.DAT |
+| 20-21 | 2 | uint16 | Door Qty | Number of doors |
+| 22-33 | 12 | bytes | Reserved | Additional data |
 
-**Example - South wall with 6.0 m² area:**
+**Example - South wall with 6.0 m² area and Wall Type 3:**
 ```
-Hex: 0900 BC2A8142 0100 0100 0100 000000...
-     ---- -------- ---- ---- ----
-     |    |        |    |    |
-     |    |        |    |    +-- Unknown (1)
-     |    |        |    +------- Window Type ID (1)
-     |    |        +------------ Unknown (1)
-     |    +--------------------- Wall Area: 64.58 ft² = 6.0 m²
-     +-------------------------- Wall Type ID: 9
+Hex: 0300 BC2A8142 0300 0100 0000 0100 ...
+     ---- -------- ---- ---- ---- ----
+     |    |        |    |    |    |
+     |    |        |    |    |    +-- Win1 Qty (1)
+     |    |        |    |    +------- Reserved
+     |    |        |    +------------ Window 1 ID (1)
+     |    |        +----------------- Wall Type ID (3)
+     |    +-------------------------- Wall Area: 64.58 ft² = 6.0 m²
+     +------------------------------- Exposure: 3 (South)
 ```
 
 #### Outdoor Air (OA) Requirement

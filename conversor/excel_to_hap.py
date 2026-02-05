@@ -150,6 +150,91 @@ def safe_float(val, default=0.0):
         return default
 
 # =============================================================================
+# CRIAR WALL/ROOF ASSEMBLIES COM LAYERS
+# =============================================================================
+
+# Constantes para assemblies
+ASSEMBLY_SIZE = 3187
+LAYER_SIZE = 281
+LAYER_START = 377  # Onde começa o primeiro layer (Inside surface)
+
+# R-Values fixos das superfícies (em IP: ft²·°F·hr/BTU)
+R_INSIDE_IP = 0.68    # 0.12 SI
+R_OUTSIDE_IP = 0.33   # 0.06 SI
+
+def fill_assembly_layers(data, offset, u_value_si, weight_si, absorptivity=0.9):
+    """
+    Preenche as layers de um Wall/Roof assembly para obter o U-Value e Weight desejados.
+
+    Args:
+        data: bytearray do ficheiro DAT
+        offset: offset do início do assembly
+        u_value_si: U-Value desejado em W/m²K
+        weight_si: Weight desejado em kg/m²
+        absorptivity: Absorptivity (0-1), default 0.9
+    """
+    # Converter para IP
+    u_value_ip = u_value_si / 5.678  # W/m²K -> BTU/hr·ft²·°F
+    weight_ip = weight_si * 0.2048   # kg/m² -> lb/ft²
+
+    # Calcular R-Value do material
+    r_total_ip = 1.0 / u_value_ip if u_value_ip > 0 else 10.0
+    r_material_ip = r_total_ip - R_INSIDE_IP - R_OUTSIDE_IP
+    if r_material_ip < 0.01:
+        r_material_ip = 0.01  # Mínimo
+
+    # Usar thickness fixo de 0.1 ft (~30mm) e calcular density para dar o weight
+    thickness_ft = 0.1
+    density_lb_ft3 = weight_ip / thickness_ft if thickness_ft > 0 else 100.0
+
+    # Absorptivity (offset 255)
+    struct.pack_into('<f', data, offset + 255, absorptivity)
+
+    # Surface Color = 2 (Dark) - offset 259
+    data[offset + 259] = 2
+
+    # Layer 0: Inside surface resistance (offset 377)
+    layer0 = offset + LAYER_START
+    inside_name = b'Inside surface resistance' + b' ' * (255 - 25)
+    data[layer0:layer0+255] = inside_name
+    struct.pack_into('<f', data, layer0 + 257, 0.0)        # Thickness
+    struct.pack_into('<f', data, layer0 + 261, 0.0)        # Conductivity
+    struct.pack_into('<f', data, layer0 + 265, 0.0)        # Density
+    struct.pack_into('<f', data, layer0 + 269, 0.0)        # Specific Heat
+    struct.pack_into('<f', data, layer0 + 273, R_INSIDE_IP) # R-Value
+    struct.pack_into('<f', data, layer0 + 277, 0.0)        # Weight
+
+    # Layer 1: Material principal (offset 377 + 281 = 658)
+    layer1 = offset + LAYER_START + LAYER_SIZE
+    material_name = b'Insulation' + b' ' * (255 - 10)
+    data[layer1:layer1+255] = material_name
+    struct.pack_into('<f', data, layer1 + 257, thickness_ft)      # Thickness
+    struct.pack_into('<f', data, layer1 + 261, 0.02)              # Conductivity
+    struct.pack_into('<f', data, layer1 + 265, density_lb_ft3)    # Density
+    struct.pack_into('<f', data, layer1 + 269, 0.2)               # Specific Heat
+    struct.pack_into('<f', data, layer1 + 273, r_material_ip)     # R-Value
+    struct.pack_into('<f', data, layer1 + 277, weight_ip)         # Weight
+
+    # Layer 2: Outside surface resistance (offset 377 + 281*2 = 939)
+    layer2 = offset + LAYER_START + LAYER_SIZE * 2
+    outside_name = b'Outside surface resistance' + b' ' * (255 - 26)
+    data[layer2:layer2+255] = outside_name
+    struct.pack_into('<f', data, layer2 + 257, 0.0)         # Thickness
+    struct.pack_into('<f', data, layer2 + 261, 0.0)         # Conductivity
+    struct.pack_into('<f', data, layer2 + 265, 0.0)         # Density
+    struct.pack_into('<f', data, layer2 + 269, 0.0)         # Specific Heat
+    struct.pack_into('<f', data, layer2 + 273, R_OUTSIDE_IP) # R-Value
+    struct.pack_into('<f', data, layer2 + 277, 0.0)         # Weight
+
+    # Limpar layers 3+ (preencher com nulls para o HAP não os detectar)
+    for layer_idx in range(3, 9):
+        layer_off = offset + LAYER_START + LAYER_SIZE * layer_idx
+        if layer_off + LAYER_SIZE <= offset + ASSEMBLY_SIZE:
+            data[layer_off:layer_off+255] = b'\x00' * 255
+            for i in range(255, LAYER_SIZE):
+                data[layer_off + i] = 0
+
+# =============================================================================
 # LER EXCEL
 # =============================================================================
 
@@ -360,7 +445,7 @@ def read_excel_spaces(excel_path):
                 }
                 type_definitions['windows'].append(win_def)
 
-    # Sheet Walls: Nome, U-Value, Peso, Espessura
+    # Sheet Walls: Nome, U-Value, Peso, Espessura, Absorptivity
     if 'Walls' in wb.sheetnames:
         ws_wal = wb['Walls']
         for row in range(4, ws_wal.max_row + 1):
@@ -371,10 +456,11 @@ def read_excel_spaces(excel_path):
                     'u_value': safe_float(ws_wal.cell(row=row, column=2).value, 0.5),
                     'weight': safe_float(ws_wal.cell(row=row, column=3).value, 200),
                     'thickness': safe_float(ws_wal.cell(row=row, column=4).value, 0.3),
+                    'absorptivity': safe_float(ws_wal.cell(row=row, column=5).value, 0.9),
                 }
                 type_definitions['walls'].append(wall_def)
 
-    # Sheet Roofs: Nome, U-Value, Peso, Espessura
+    # Sheet Roofs: Nome, U-Value, Peso, Espessura, Absorptivity
     if 'Roofs' in wb.sheetnames:
         ws_rof = wb['Roofs']
         for row in range(4, ws_rof.max_row + 1):
@@ -385,6 +471,7 @@ def read_excel_spaces(excel_path):
                     'u_value': safe_float(ws_rof.cell(row=row, column=2).value, 0.4),
                     'weight': safe_float(ws_rof.cell(row=row, column=3).value, 300),
                     'thickness': safe_float(ws_rof.cell(row=row, column=4).value, 0.3),
+                    'absorptivity': safe_float(ws_rof.cell(row=row, column=5).value, 0.9),
                 }
                 type_definitions['roofs'].append(roof_def)
 
@@ -696,87 +783,76 @@ def main():
             print(f"HAP51WIN.DAT: {len(win_data)} bytes ({len(win_data) // WINDOW_RECORD_SIZE} windows)")
 
         # Criar novos tipos de Walls se definidos no Excel
-        # Nota: Walls são assemblies complexos com layers. Vamos copiar o template e modificar.
+        # Walls são assemblies com layers - preenchemos as layers para obter U-Value e Weight correctos
         if type_definitions['walls']:
             print("\n--- Criando Walls ---")
             wal_path = os.path.join(temp_dir, 'HAP51WAL.DAT')
             with open(wal_path, 'rb') as f:
                 wal_data = bytearray(f.read())
 
-            # Descobrir tamanho do primeiro registo (template)
-            # Procurar onde começa um novo nome após o primeiro
-            wall_template_size = len(wal_data)  # Se só há 1, usar tudo
-            for i in range(256, min(2000, len(wal_data))):
-                # Procurar início de novo registo (nome com letras)
-                if wal_data[i:i+1].isalpha() and wal_data[i+1:i+2].isalpha():
-                    chunk = wal_data[i:i+20]
-                    if all(32 <= b <= 126 or b == 0 for b in chunk[:10]):
-                        wall_template_size = i
-                        break
-
-            # Se não encontrou segundo registo, usar um tamanho estimado
-            if wall_template_size == len(wal_data):
-                wall_template_size = 280  # Tamanho mínimo estimado
-
-            wall_template = wal_data[0:wall_template_size]
-            # Contar registos existentes baseado no tamanho
-            num_existing_walls = len(wal_data) // wall_template_size if wall_template_size > 0 else 1
+            # Usar tamanho fixo de 3187 bytes por assembly
+            num_existing_walls = len(wal_data) // ASSEMBLY_SIZE
 
             for i, wall_def in enumerate(type_definitions['walls']):
-                new_wall = bytearray(wall_template)
+                # Criar novo assembly baseado no template (primeiro assembly)
+                new_wall = bytearray(wal_data[0:ASSEMBLY_SIZE])
+
                 # Modificar nome (0-255)
                 name_bytes = wall_def['name'].encode('latin-1')[:255].ljust(255, b' ')
                 new_wall[0:255] = name_bytes
-                # U-value está aproximadamente no offset 269
-                struct.pack_into('<f', new_wall, 269, u_si_to_ip(wall_def['u_value']))
+
+                # Preencher layers para obter U-Value e Weight correctos
+                u_value = safe_float(wall_def.get('u_value'), 1.0)
+                weight = safe_float(wall_def.get('weight'), 100.0)
+                absorptivity = safe_float(wall_def.get('absorptivity'), 0.9)
+
+                fill_assembly_layers(new_wall, 0, u_value, weight, absorptivity)
 
                 wal_data.extend(new_wall)
                 new_id = num_existing_walls + i
                 types['walls'][wall_def['name']] = new_id
-                print(f"  Wall {new_id}: {wall_def['name']}")
+                print(f"  Wall {new_id}: {wall_def['name']} (U={u_value:.2f}, W={weight:.0f}, A={absorptivity:.1f})")
 
             with open(wal_path, 'wb') as f:
                 f.write(bytes(wal_data))
 
-            print(f"HAP51WAL.DAT: {len(wal_data)} bytes")
+            print(f"HAP51WAL.DAT: {len(wal_data)} bytes ({len(wal_data)//ASSEMBLY_SIZE} walls)")
 
         # Criar novos tipos de Roofs se definidos no Excel
+        # Roofs têm a mesma estrutura que Walls - assemblies com layers
         if type_definitions['roofs']:
             print("\n--- Criando Roofs ---")
             rof_path = os.path.join(temp_dir, 'HAP51ROF.DAT')
             with open(rof_path, 'rb') as f:
                 rof_data = bytearray(f.read())
 
-            # Usar mesma lógica dos walls
-            roof_template_size = len(rof_data)
-            for i in range(256, min(2000, len(rof_data))):
-                if rof_data[i:i+1].isalpha() and rof_data[i+1:i+2].isalpha():
-                    chunk = rof_data[i:i+20]
-                    if all(32 <= b <= 126 or b == 0 for b in chunk[:10]):
-                        roof_template_size = i
-                        break
-
-            if roof_template_size == len(rof_data):
-                roof_template_size = 280
-
-            roof_template = rof_data[0:roof_template_size]
-            num_existing_roofs = len(rof_data) // roof_template_size if roof_template_size > 0 else 1
+            # Usar tamanho fixo de 3187 bytes por assembly
+            num_existing_roofs = len(rof_data) // ASSEMBLY_SIZE
 
             for i, roof_def in enumerate(type_definitions['roofs']):
-                new_roof = bytearray(roof_template)
+                # Criar novo assembly baseado no template (primeiro assembly)
+                new_roof = bytearray(rof_data[0:ASSEMBLY_SIZE])
+
+                # Modificar nome (0-255)
                 name_bytes = roof_def['name'].encode('latin-1')[:255].ljust(255, b' ')
                 new_roof[0:255] = name_bytes
-                struct.pack_into('<f', new_roof, 269, u_si_to_ip(roof_def['u_value']))
+
+                # Preencher layers para obter U-Value e Weight correctos
+                u_value = safe_float(roof_def.get('u_value'), 1.0)
+                weight = safe_float(roof_def.get('weight'), 100.0)
+                absorptivity = safe_float(roof_def.get('absorptivity'), 0.9)
+
+                fill_assembly_layers(new_roof, 0, u_value, weight, absorptivity)
 
                 rof_data.extend(new_roof)
                 new_id = num_existing_roofs + i
                 types['roofs'][roof_def['name']] = new_id
-                print(f"  Roof {new_id}: {roof_def['name']}")
+                print(f"  Roof {new_id}: {roof_def['name']} (U={u_value:.2f}, W={weight:.0f}, A={absorptivity:.1f})")
 
             with open(rof_path, 'wb') as f:
                 f.write(bytes(rof_data))
 
-            print(f"HAP51ROF.DAT: {len(rof_data)} bytes")
+            print(f"HAP51ROF.DAT: {len(rof_data)} bytes ({len(rof_data)//ASSEMBLY_SIZE} roofs)")
 
         # Criar novos espaços
         print("\n--- Criando espaços ---")
