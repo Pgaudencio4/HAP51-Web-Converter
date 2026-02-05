@@ -34,9 +34,12 @@ HAPPXXXX/
 │   ├── comparar_excels.py        Comparador simples
 │   └── comparar_lado_a_lado.py   Comparador lado a lado (antigo)
 │
-├── editor/                       ← EDITAR E3A existente (novo!)
+├── editor/                       ← EDITAR E3A existente
 │   ├── editor_e3a.py             Script principal de edição
 │   └── README.md                 Documentação do editor
+│
+├── iee/                          ← CALCULAR IEE e Classe Energética ⭐ NOVO
+│   └── iee_completo_v3.py        Script principal (CSV → Excel IEE)
 │
 ├── exemplos/                     ← Ficheiros de exemplo
 │   ├── Malhoa22.E3A              Exemplo de E3A completo
@@ -265,6 +268,121 @@ E3A original + Excel → editor aplicar → E3A modificado
                                         (mantém sistemas!)
 ```
 
+### Calcular IEE e Classe Energética (IEE Completo)
+```
+CSV PREV + CSV REF → iee_completo_v3.py → Excel IEE
+                                              │
+                               (preencher EER/COP e Área)
+                                              │
+                                              ▼
+                                    Classe Energética (A+ a F)
+```
+
 ---
 
-**Última actualização:** 2026-02-04
+## 📊 5. IEE COMPLETO (CSV → Classe Energética)
+
+### Para que serve?
+Calcular automaticamente o **IEE** (Indicador de Eficiência Energética) e a **Classe Energética** a partir dos CSV exportados do HAP.
+
+### Localização
+```
+iee/iee_completo_v3.py
+```
+
+### Como usar?
+
+#### Passo 1: Exportar CSV do HAP
+No HAP 5.1, exportar os resultados mensais para CSV (Menu → Reports → Monthly Simulation Results → Export CSV).
+
+Estrutura esperada:
+```
+C:\Projecto\
+├── PREV\
+│   ├── HAP51_Monthly_1_Sistema1.csv
+│   ├── HAP51_Monthly_2_Sistema2.csv
+│   └── ...
+└── REF\
+    ├── HAP51_Monthly_1_Sistema1.csv
+    ├── HAP51_Monthly_2_Sistema2.csv
+    └── ...
+```
+
+#### Passo 2: Executar o script
+```bash
+cd iee
+python iee_completo_v3.py "<pasta_PREV>" "<pasta_REF>" "<output.xlsx>"
+```
+
+**Exemplo:**
+```bash
+python iee_completo_v3.py "C:\Projecto\PREV" "C:\Projecto\REF" "C:\Projecto\IEE_Completo.xlsx"
+```
+
+#### Passo 3: Preencher o Excel
+1. **Simulacao** → Preencher EER e COP de cada sistema (células amarelas)
+2. **EnergiaPrimaria** → Preencher **Área Útil (m²)**
+3. **Folhas auxiliares** → AQS, PV, Elevadores, etc. (se aplicável)
+4. **IEE e Classe** → Calculados automaticamente!
+
+### Folhas do Excel Gerado
+
+| # | Folha | Conteúdo | Acção |
+|---|-------|----------|-------|
+| 1 | DetalhePREV | Totais anuais PREV por sistema | Automático |
+| 2 | DetalheREF | Totais anuais REF por sistema | Automático |
+| 3 | MensalPREV | Mensais + Resumo por Tipo + Resumo por Sistema | Automático |
+| 4 | MensalREF | Mensais + Resumo por Tipo + Resumo por Sistema | Automático |
+| 5 | Simulacao | EER/COP → Energia Final + Aerotermia | **Preencher EER/COP** |
+| 6 | IluminacaoENU | Iluminação ENU e Exterior | Preencher se aplicável |
+| 7 | AQS | Águas Quentes Sanitárias | Preencher se aplicável |
+| 8 | PV | Fotovoltaico | Preencher se aplicável |
+| 9 | EquipamentosExtra | Equipamentos não simulados | Preencher se aplicável |
+| 10 | Elevadores | Cálculo RECS | Preencher se aplicável |
+| 11 | VentilacaoExtra | Ventilação não simulada | Preencher se aplicável |
+| 12 | Bombagem | Bombas não simuladas | Preencher se aplicável |
+| 13 | Desagregacao | Resume todos os consumos | Automático |
+| 14 | EnergiaPrimaria | kWh → kWhEP (Fpu=2.5) | **Preencher ÁREA ÚTIL** |
+| 15 | IEE | IEEprev,s, IEEref,s, IEEren, RIEE | Automático |
+| 16 | Classe | Resultado final (A+ a F) | Automático |
+| 17 | Legenda | Instruções de preenchimento | - |
+
+### Cores das Células
+| Cor | Significado |
+|-----|-------------|
+| 🟡 Amarelo | Preencher manualmente |
+| 🟢 Verde claro | Fórmula automática |
+| 🟢 Verde escuro | Energia renovável |
+| 🟠 Laranja | Resultado/Total |
+| 🔵 Azul claro | Dados PREV |
+| 🟤 Laranja claro | Dados REF |
+
+### Fórmulas de Cálculo
+
+```
+IEEprev,s = Energia Primária PREV (Tipo S) / Área Útil
+IEEref,s  = Energia Primária REF (Tipo S) / Área Útil
+IEEren    = Energia Renovável × Fpu / Área Útil
+
+RIEE = (IEEprev,s - IEEren) / IEEref,s
+```
+
+### Escala de Classes Energéticas
+| Classe | RIEE |
+|--------|------|
+| A+ | ≤ 0,25 |
+| A | 0,26 - 0,50 |
+| B | 0,51 - 0,75 |
+| B- | 0,76 - 1,00 |
+| C | 1,01 - 1,50 |
+| D | 1,51 - 2,00 |
+| E | 2,01 - 2,50 |
+| F | > 2,50 |
+
+### Tipos de Consumo (SCE)
+- **Tipo S** (conta para classificação): AVAC, AQS, Iluminação, Elevadores, Ventilação
+- **Tipo T** (não conta): Equipamentos
+
+---
+
+**Última actualização:** 2026-02-05
