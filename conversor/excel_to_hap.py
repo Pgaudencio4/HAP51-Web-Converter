@@ -49,14 +49,14 @@ DIRECTION_CODES = {
 }
 
 ACTIVITY_CODES = {
-    'Seated at Rest': 0,
-    'Office Work': 3,
-    'Sedentary Work': 4,
-    'Light Bench Work': 4,
-    'Medium Work': 5,
-    'Heavy Work': 6,
-    'Dancing': 7,
-    'Athletics': 8,
+    'User-defined': 0,
+    'Seated at Rest': 1,
+    'Office Work': 2,
+    'Sedentary Work': 3,
+    'Medium Work': 4,
+    'Heavy Work': 5,
+    'Dancing': 6,
+    'Athletics': 7,
 }
 
 FIXTURE_CODES = {
@@ -80,9 +80,28 @@ OA_UNIT_CODES = {
     '%': 4,
 }
 
-# OA encoding
-OA_A = 0.00470356
-OA_B = 2.71147770
+# OA encoding - exact closed-form formula (2026-02-05)
+# HAP 5.1 uses a piecewise-linear "fast_exp2" approximation:
+#   y = Y0 * fast_exp2(k * (x - 4))
+#   k=4 for x<4 (base 16), k=2 for x>=4 (base 4)
+#   Y0 = 512 CFM in L/s = 241.637...
+_OA_Y0 = 512.0 * (28.316846592 / 60.0)
+
+def _fast_exp2(t):
+    n = math.floor(t)
+    f = t - n
+    return (2.0 ** n) * (1.0 + f)
+
+def _fast_log2(v):
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    if f < 0:
+        n -= 1
+        f = v / (2.0 ** n) - 1.0
+    if f >= 1.0:
+        n += 1
+        f = v / (2.0 ** n) - 1.0
+    return n + f
 
 # =============================================================================
 # CONVERSÕES
@@ -131,7 +150,12 @@ def r_si_to_ip(r):
 def encode_oa(value, unit_code):
     if value is None or value == '' or float(value) <= 0:
         return 0.0
-    return math.log(float(value) / OA_A) / OA_B
+    v = float(value) / _OA_Y0
+    t = _fast_log2(v)
+    if t < 0:
+        return t / 4.0 + 4.0
+    else:
+        return t / 2.0 + 4.0
 
 def safe_int(val, default=0):
     if val is None or val == '':
@@ -477,13 +501,31 @@ def read_excel_spaces(excel_path):
 
     return spaces, types, type_definitions
 
+def normalize_name(name):
+    """Normaliza nome para matching (remove variações comuns)."""
+    if not name:
+        return ''
+    n = str(name).lower().strip()
+    n = n.replace('estrelas', 'estrela')
+    n = n.replace('  ', ' ')
+    return n
+
 def get_type_id(name, type_dict, default=1):
     """Obtém o ID de um tipo pelo nome."""
     if name is None or name == '':
         return 0
     name_str = str(name).strip()
+
+    # Match exacto
     if name_str in type_dict:
         return type_dict[name_str]
+
+    # Match normalizado
+    name_norm = normalize_name(name_str)
+    for key, val in type_dict.items():
+        if normalize_name(key) == name_norm:
+            return val
+
     # Tentar encontrar por substring
     for key, val in type_dict.items():
         if name_str.lower() in key.lower() or key.lower() in name_str.lower():
@@ -554,10 +596,12 @@ def create_space_binary(space, types, template_record):
         if i < len(space['walls']):
             wall = space['walls'][i]
             exp = wall.get('exposure')
-            if exp and exp in DIRECTION_CODES:
+            wall_type_id = get_type_id(wall.get('type'), types['walls'], 0)
+            # Só escrever wall block se tiver exposição E tipo válido
+            if exp and exp in DIRECTION_CODES and wall_type_id > 0:
                 struct.pack_into('<H', data, wall_start, DIRECTION_CODES[exp])
                 struct.pack_into('<f', data, wall_start + 2, m2_to_ft2(wall.get('area')))
-                struct.pack_into('<H', data, wall_start + 6, get_type_id(wall.get('type'), types['walls']))
+                struct.pack_into('<H', data, wall_start + 6, wall_type_id)
                 struct.pack_into('<H', data, wall_start + 8, get_type_id(wall.get('win1'), types['windows'], 0))
                 # +10 reservado (não usar)
                 struct.pack_into('<H', data, wall_start + 12, safe_int(wall.get('win1_qty')))  # Win1 Qty em +12!
@@ -576,11 +620,14 @@ def create_space_binary(space, types, template_record):
         if i < len(space['roofs']):
             roof = space['roofs'][i]
             exp = roof.get('exposure')
-            if exp and exp in DIRECTION_CODES:
+            roof_type_id = get_type_id(roof.get('type'), types['roofs'], 0)
+            # CRÍTICO: só escrever roof block se tiver exposição E tipo válido
+            # Exposição sem tipo (type=0) causa crash no HAP (division by zero)
+            if exp and exp in DIRECTION_CODES and roof_type_id > 0:
                 struct.pack_into('<H', data, roof_start, DIRECTION_CODES[exp])
                 struct.pack_into('<H', data, roof_start + 2, safe_int(roof.get('slope')))
                 struct.pack_into('<f', data, roof_start + 4, m2_to_ft2(roof.get('area')))
-                struct.pack_into('<H', data, roof_start + 8, get_type_id(roof.get('type'), types['roofs']))
+                struct.pack_into('<H', data, roof_start + 8, roof_type_id)
                 struct.pack_into('<H', data, roof_start + 10, get_type_id(roof.get('sky'), types['windows'], 0))
                 struct.pack_into('<H', data, roof_start + 12, safe_int(roof.get('sky_qty')))
 
@@ -830,24 +877,22 @@ def main():
             num_existing_roofs = len(rof_data) // ASSEMBLY_SIZE
 
             for i, roof_def in enumerate(type_definitions['roofs']):
-                # Criar novo assembly baseado no template (primeiro assembly)
+                # Criar novo roof como cópia exacta do Default Roof Assembly (record 0)
+                # Só alterar nome e absorptivity - manter layers e CTF intactos
                 new_roof = bytearray(rof_data[0:ASSEMBLY_SIZE])
 
                 # Modificar nome (0-255)
                 name_bytes = roof_def['name'].encode('latin-1')[:255].ljust(255, b' ')
                 new_roof[0:255] = name_bytes
 
-                # Preencher layers para obter U-Value e Weight correctos
-                u_value = safe_float(roof_def.get('u_value'), 1.0)
-                weight = safe_float(roof_def.get('weight'), 100.0)
+                # Absorptivity (offset 255)
                 absorptivity = safe_float(roof_def.get('absorptivity'), 0.9)
-
-                fill_assembly_layers(new_roof, 0, u_value, weight, absorptivity)
+                struct.pack_into('<f', new_roof, 255, absorptivity)
 
                 rof_data.extend(new_roof)
                 new_id = num_existing_roofs + i
                 types['roofs'][roof_def['name']] = new_id
-                print(f"  Roof {new_id}: {roof_def['name']} (U={u_value:.2f}, W={weight:.0f}, A={absorptivity:.1f})")
+                print(f"  Roof {new_id}: {roof_def['name']} (cópia Default, A={absorptivity:.1f})")
 
             with open(rof_path, 'wb') as f:
                 f.write(bytes(rof_data))
