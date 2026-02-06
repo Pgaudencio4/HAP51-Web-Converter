@@ -49,14 +49,14 @@ DIRECTION_CODES = {
 }
 
 ACTIVITY_CODES = {
-    'User-defined': 0,
-    'Seated at Rest': 1,
-    'Office Work': 2,
-    'Sedentary Work': 3,
-    'Medium Work': 4,
-    'Heavy Work': 5,
-    'Dancing': 6,
-    'Athletics': 7,
+    'Seated at Rest': 0,
+    'Office Work': 3,
+    'Sedentary Work': 4,
+    'Light Bench Work': 4,
+    'Medium Work': 5,
+    'Heavy Work': 6,
+    'Dancing': 7,
+    'Athletics': 8,
 }
 
 FIXTURE_CODES = {
@@ -80,28 +80,9 @@ OA_UNIT_CODES = {
     '%': 4,
 }
 
-# OA encoding - exact closed-form formula (2026-02-05)
-# HAP 5.1 uses a piecewise-linear "fast_exp2" approximation:
-#   y = Y0 * fast_exp2(k * (x - 4))
-#   k=4 for x<4 (base 16), k=2 for x>=4 (base 4)
-#   Y0 = 512 CFM in L/s = 241.637...
-_OA_Y0 = 512.0 * (28.316846592 / 60.0)
-
-def _fast_exp2(t):
-    n = math.floor(t)
-    f = t - n
-    return (2.0 ** n) * (1.0 + f)
-
-def _fast_log2(v):
-    n = math.floor(math.log2(v))
-    f = v / (2.0 ** n) - 1.0
-    if f < 0:
-        n -= 1
-        f = v / (2.0 ** n) - 1.0
-    if f >= 1.0:
-        n += 1
-        f = v / (2.0 ** n) - 1.0
-    return n + f
+# OA encoding
+OA_A = 0.00470356
+OA_B = 2.71147770
 
 # =============================================================================
 # CONVERSÕES
@@ -150,12 +131,7 @@ def r_si_to_ip(r):
 def encode_oa(value, unit_code):
     if value is None or value == '' or float(value) <= 0:
         return 0.0
-    v = float(value) / _OA_Y0
-    t = _fast_log2(v)
-    if t < 0:
-        return t / 4.0 + 4.0
-    else:
-        return t / 2.0 + 4.0
+    return math.log(float(value) / OA_A) / OA_B
 
 def safe_int(val, default=0):
     if val is None or val == '':
@@ -186,99 +162,77 @@ LAYER_START = 377  # Onde começa o primeiro layer (Inside surface)
 R_INSIDE_IP = 0.68    # 0.12 SI
 R_OUTSIDE_IP = 0.33   # 0.06 SI
 
-def _write_layer(data, layer_offset, name, mat_id, thickness_ft, conductivity, density, specific_heat, r_value, weight):
-    """Escreve uma layer de 281 bytes num assembly Wall/Roof.
-
-    Estrutura (confirmada por reverse-engineering de Untitledxx.E3A):
-      Bytes 0-254:   Nome (255 bytes, padded com espaços 0x20)
-      Bytes 255-256: Material ID (uint16, 0xFFFF=activo, 0x0000=vazio)
-      Bytes 257-260: Thickness (float, feet)
-      Bytes 261-264: Conductivity (float, BTU/(h.ft.F))
-      Bytes 265-268: Density (float, lb/ft3)
-      Bytes 269-272: Specific Heat (float, BTU/(lb.F))
-      Bytes 273-276: R-value (float, (ft2.h.F)/BTU)
-      Bytes 277-280: Weight (float, lb/ft2)
-    """
-    name_bytes = name.encode('latin-1')[:255].ljust(255, b' ')
-    data[layer_offset:layer_offset+255] = name_bytes
-    struct.pack_into('<H', data, layer_offset + 255, mat_id)
-    struct.pack_into('<f', data, layer_offset + 257, thickness_ft)
-    struct.pack_into('<f', data, layer_offset + 261, conductivity)
-    struct.pack_into('<f', data, layer_offset + 265, density)
-    struct.pack_into('<f', data, layer_offset + 269, specific_heat)
-    struct.pack_into('<f', data, layer_offset + 273, r_value)
-    struct.pack_into('<f', data, layer_offset + 277, weight)
-
-
 def fill_assembly_layers(data, offset, u_value_si, weight_si, absorptivity=0.9):
     """
     Preenche as layers de um Wall/Roof assembly para obter o U-Value e Weight desejados.
 
-    Estrutura do assembly (3187 bytes, confirmada por reverse-engineering):
-      Header (bytes 0-376):
-        0-254:   Nome do assembly (255 bytes, espaços)
-        255-258: Absorptivity (float)
-        259:     Surface Color (byte: 1=Light, 2=Dark, 3=Medium)
-        260:     Padding (0)
-        261-264: Inside surface R-value (float, IP)
-        265-268: Outside surface R-value (float, IP)
-        269-272: Overall U-value (float, IP) - HAP recalcula ao abrir
-        273-276: Overall Weight (float, IP) - HAP recalcula ao abrir
-        277-376: CTF coefficients (HAP recalcula ao abrir)
-      10 Layers (bytes 377-3186), cada uma 281 bytes:
-        Layer 0: Inside surface resistance (fixa)
-        Layers 1-8: Materiais (ou "Not used")
-        Layer 9: Outside surface resistance (fixa, SEMPRE na posição 9)
+    Args:
+        data: bytearray do ficheiro DAT
+        offset: offset do início do assembly
+        u_value_si: U-Value desejado em W/m²K
+        weight_si: Weight desejado em kg/m²
+        absorptivity: Absorptivity (0-1), default 0.9
     """
     # Converter para IP
     u_value_ip = u_value_si / 5.678  # W/m²K -> BTU/hr·ft²·°F
     weight_ip = weight_si * 0.2048   # kg/m² -> lb/ft²
 
-    # Calcular R-Value total e do material isolante
+    # Calcular R-Value do material
     r_total_ip = 1.0 / u_value_ip if u_value_ip > 0 else 10.0
     r_material_ip = r_total_ip - R_INSIDE_IP - R_OUTSIDE_IP
     if r_material_ip < 0.01:
-        r_material_ip = 0.01
+        r_material_ip = 0.01  # Mínimo
 
-    # Thickness e density calculados para obter o weight desejado
-    thickness_ft = 0.1  # ~30mm fixo
+    # Usar thickness fixo de 0.1 ft (~30mm) e calcular density para dar o weight
+    thickness_ft = 0.1
     density_lb_ft3 = weight_ip / thickness_ft if thickness_ft > 0 else 100.0
-    # Conductivity derivada: k = thickness / R
-    conductivity = thickness_ft / r_material_ip if r_material_ip > 0 else 0.02
 
-    # === HEADER ===
+    # Absorptivity (offset 255)
     struct.pack_into('<f', data, offset + 255, absorptivity)
-    data[offset + 259] = 2   # Surface Color = Dark
-    data[offset + 260] = 0   # Padding
-    struct.pack_into('<f', data, offset + 261, R_INSIDE_IP)   # Inside R (IP)
-    struct.pack_into('<f', data, offset + 265, R_OUTSIDE_IP)  # Outside R (IP)
-    struct.pack_into('<f', data, offset + 269, u_value_ip)    # Overall U (IP)
-    struct.pack_into('<f', data, offset + 273, weight_ip)     # Overall Weight (IP)
 
-    # === LAYER 0: Inside surface resistance ===
-    _write_layer(data, offset + LAYER_START,
-                 'Inside surface resistance', 0xFFFF,
-                 0.0, 0.0, 0.0, 0.0, R_INSIDE_IP, 0.0)
+    # Surface Color = 2 (Dark) - offset 259
+    data[offset + 259] = 2
 
-    # === LAYER 1: Material isolante (Board insulation) ===
-    _write_layer(data, offset + LAYER_START + LAYER_SIZE,
-                 'Board insulation', 0xFFFF,
-                 thickness_ft, conductivity, density_lb_ft3, 0.22, r_material_ip, weight_ip)
+    # Layer 0: Inside surface resistance (offset 377)
+    layer0 = offset + LAYER_START
+    inside_name = b'Inside surface resistance' + b' ' * (255 - 25)
+    data[layer0:layer0+255] = inside_name
+    struct.pack_into('<f', data, layer0 + 257, 0.0)        # Thickness
+    struct.pack_into('<f', data, layer0 + 261, 0.0)        # Conductivity
+    struct.pack_into('<f', data, layer0 + 265, 0.0)        # Density
+    struct.pack_into('<f', data, layer0 + 269, 0.0)        # Specific Heat
+    struct.pack_into('<f', data, layer0 + 273, R_INSIDE_IP) # R-Value
+    struct.pack_into('<f', data, layer0 + 277, 0.0)        # Weight
 
-    # === LAYERS 2-8: "Not used" (padrão exacto do HAP) ===
-    # Valores obrigatórios: conductivity=1.0, R-value=6e-05
-    # (zeros no conductivity causam crash por divisão por zero no HAP)
-    NOT_USED_CONDUCTIVITY = 1.0
-    NOT_USED_R_VALUE = 6.0e-05
-    for layer_idx in range(2, 9):
-        _write_layer(data, offset + LAYER_START + LAYER_SIZE * layer_idx,
-                     'Not used', 0x0000,
-                     0.0, NOT_USED_CONDUCTIVITY, 0.0, 0.0, NOT_USED_R_VALUE, 0.0)
+    # Layer 1: Material principal (offset 377 + 281 = 658)
+    layer1 = offset + LAYER_START + LAYER_SIZE
+    material_name = b'Insulation' + b' ' * (255 - 10)
+    data[layer1:layer1+255] = material_name
+    struct.pack_into('<f', data, layer1 + 257, thickness_ft)      # Thickness
+    struct.pack_into('<f', data, layer1 + 261, 0.02)              # Conductivity
+    struct.pack_into('<f', data, layer1 + 265, density_lb_ft3)    # Density
+    struct.pack_into('<f', data, layer1 + 269, 0.2)               # Specific Heat
+    struct.pack_into('<f', data, layer1 + 273, r_material_ip)     # R-Value
+    struct.pack_into('<f', data, layer1 + 277, weight_ip)         # Weight
 
-    # === LAYER 9: Outside surface resistance (SEMPRE na última posição) ===
-    _write_layer(data, offset + LAYER_START + LAYER_SIZE * 9,
-                 'Outside surface resistance', 0xFFFF,
-                 0.0, 0.0, 0.0, 0.0, R_OUTSIDE_IP, 0.0)
+    # Layer 2: Outside surface resistance (offset 377 + 281*2 = 939)
+    layer2 = offset + LAYER_START + LAYER_SIZE * 2
+    outside_name = b'Outside surface resistance' + b' ' * (255 - 26)
+    data[layer2:layer2+255] = outside_name
+    struct.pack_into('<f', data, layer2 + 257, 0.0)         # Thickness
+    struct.pack_into('<f', data, layer2 + 261, 0.0)         # Conductivity
+    struct.pack_into('<f', data, layer2 + 265, 0.0)         # Density
+    struct.pack_into('<f', data, layer2 + 269, 0.0)         # Specific Heat
+    struct.pack_into('<f', data, layer2 + 273, R_OUTSIDE_IP) # R-Value
+    struct.pack_into('<f', data, layer2 + 277, 0.0)         # Weight
+
+    # Limpar layers 3+ (preencher com nulls para o HAP não os detectar)
+    for layer_idx in range(3, 9):
+        layer_off = offset + LAYER_START + LAYER_SIZE * layer_idx
+        if layer_off + LAYER_SIZE <= offset + ASSEMBLY_SIZE:
+            data[layer_off:layer_off+255] = b'\x00' * 255
+            for i in range(255, LAYER_SIZE):
+                data[layer_off + i] = 0
 
 # =============================================================================
 # LER EXCEL
@@ -523,33 +477,13 @@ def read_excel_spaces(excel_path):
 
     return spaces, types, type_definitions
 
-def normalize_name(name):
-    """Normaliza nome para matching (remove variações comuns)."""
-    if not name:
-        return ''
-    n = str(name).lower().strip()
-    # Normalizar variações comuns nos schedules
-    n = n.replace('estrelas', 'estrela')  # Hotel 1-3 Estrelas -> Estrela
-    n = n.replace('  ', ' ')
-    return n
-
-
 def get_type_id(name, type_dict, default=1):
     """Obtém o ID de um tipo pelo nome."""
     if name is None or name == '':
         return 0
     name_str = str(name).strip()
-
-    # Match exacto
     if name_str in type_dict:
         return type_dict[name_str]
-
-    # Match normalizado
-    name_norm = normalize_name(name_str)
-    for key, val in type_dict.items():
-        if normalize_name(key) == name_norm:
-            return val
-
     # Tentar encontrar por substring
     for key, val in type_dict.items():
         if name_str.lower() in key.lower() or key.lower() in name_str.lower():
@@ -620,12 +554,10 @@ def create_space_binary(space, types, template_record):
         if i < len(space['walls']):
             wall = space['walls'][i]
             exp = wall.get('exposure')
-            wall_type_id = get_type_id(wall.get('type'), types['walls'], 0)
-            # Só escrever wall block se tiver exposição E tipo válido
-            if exp and exp in DIRECTION_CODES and wall_type_id > 0:
+            if exp and exp in DIRECTION_CODES:
                 struct.pack_into('<H', data, wall_start, DIRECTION_CODES[exp])
                 struct.pack_into('<f', data, wall_start + 2, m2_to_ft2(wall.get('area')))
-                struct.pack_into('<H', data, wall_start + 6, wall_type_id)
+                struct.pack_into('<H', data, wall_start + 6, get_type_id(wall.get('type'), types['walls']))
                 struct.pack_into('<H', data, wall_start + 8, get_type_id(wall.get('win1'), types['windows'], 0))
                 # +10 reservado (não usar)
                 struct.pack_into('<H', data, wall_start + 12, safe_int(wall.get('win1_qty')))  # Win1 Qty em +12!
@@ -644,14 +576,11 @@ def create_space_binary(space, types, template_record):
         if i < len(space['roofs']):
             roof = space['roofs'][i]
             exp = roof.get('exposure')
-            roof_type_id = get_type_id(roof.get('type'), types['roofs'], 0)
-            # CRÍTICO: só escrever roof block se tiver exposição E tipo válido
-            # Exposição sem tipo (type=0) causa crash no HAP (division by zero)
-            if exp and exp in DIRECTION_CODES and roof_type_id > 0:
+            if exp and exp in DIRECTION_CODES:
                 struct.pack_into('<H', data, roof_start, DIRECTION_CODES[exp])
                 struct.pack_into('<H', data, roof_start + 2, safe_int(roof.get('slope')))
                 struct.pack_into('<f', data, roof_start + 4, m2_to_ft2(roof.get('area')))
-                struct.pack_into('<H', data, roof_start + 8, roof_type_id)
+                struct.pack_into('<H', data, roof_start + 8, get_type_id(roof.get('type'), types['roofs']))
                 struct.pack_into('<H', data, roof_start + 10, get_type_id(roof.get('sky'), types['windows'], 0))
                 struct.pack_into('<H', data, roof_start + 12, safe_int(roof.get('sky_qty')))
 
@@ -843,8 +772,8 @@ def main():
             for win_def in type_definitions['windows']:
                 new_win = create_window_binary(win_def, win_template)
                 win_data.extend(new_win)
-                # Mapear nome -> ID (HAP usa IDs 1-based: registo 0 = ID 1)
-                new_id = len(win_data) // WINDOW_RECORD_SIZE
+                # Mapear nome -> ID (índice)
+                new_id = len(win_data) // WINDOW_RECORD_SIZE - 1
                 types['windows'][win_def['name']] = new_id
                 print(f"  Window {new_id}: {win_def['name']}")
 
@@ -880,7 +809,7 @@ def main():
                 fill_assembly_layers(new_wall, 0, u_value, weight, absorptivity)
 
                 wal_data.extend(new_wall)
-                new_id = num_existing_walls + i + 1  # HAP usa IDs 1-based
+                new_id = num_existing_walls + i
                 types['walls'][wall_def['name']] = new_id
                 print(f"  Wall {new_id}: {wall_def['name']} (U={u_value:.2f}, W={weight:.0f}, A={absorptivity:.1f})")
 
@@ -904,19 +833,19 @@ def main():
                 # Criar novo assembly baseado no template (primeiro assembly)
                 new_roof = bytearray(rof_data[0:ASSEMBLY_SIZE])
 
-                # Modificar nome
+                # Modificar nome (0-255)
                 name_bytes = roof_def['name'].encode('latin-1')[:255].ljust(255, b' ')
                 new_roof[0:255] = name_bytes
 
                 # Preencher layers para obter U-Value e Weight correctos
-                u_value = safe_float(roof_def.get('u_value'), 0.4)
-                weight = safe_float(roof_def.get('weight'), 300.0)
+                u_value = safe_float(roof_def.get('u_value'), 1.0)
+                weight = safe_float(roof_def.get('weight'), 100.0)
                 absorptivity = safe_float(roof_def.get('absorptivity'), 0.9)
 
                 fill_assembly_layers(new_roof, 0, u_value, weight, absorptivity)
 
                 rof_data.extend(new_roof)
-                new_id = num_existing_roofs + i + 1  # HAP usa IDs 1-based
+                new_id = num_existing_roofs + i
                 types['roofs'][roof_def['name']] = new_id
                 print(f"  Roof {new_id}: {roof_def['name']} (U={u_value:.2f}, W={weight:.0f}, A={absorptivity:.1f})")
 

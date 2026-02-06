@@ -48,28 +48,9 @@ PREV_FILL = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='sol
 REF_FILL = PatternFill(start_color='E2EFDA', end_color='E2EFDA', fill_type='solid')
 CHECK_FILL = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
 
-# OA encoding - exact closed-form formula (2026-02-05)
-# HAP 5.1 uses a piecewise-linear "fast_exp2" approximation:
-#   y = Y0 * fast_exp2(k * (x - 4))
-#   k=4 for x<4 (base 16), k=2 for x>=4 (base 4)
-#   Y0 = 512 CFM in L/s = 241.637...
-_OA_Y0 = 512.0 * (28.316846592 / 60.0)
-
-def _fast_exp2(t):
-    n = math.floor(t)
-    f = t - n
-    return (2.0 ** n) * (1.0 + f)
-
-def _fast_log2(v):
-    n = math.floor(math.log2(v))
-    f = v / (2.0 ** n) - 1.0
-    if f < 0:
-        n -= 1
-        f = v / (2.0 ** n) - 1.0
-    if f >= 1.0:
-        n += 1
-        f = v / (2.0 ** n) - 1.0
-    return n + f
+# OA encoding constants
+OA_A = 0.00470356
+OA_B = 2.71147770
 
 # =============================================================================
 # CONVERSÕES SI -> Imperial
@@ -104,12 +85,7 @@ def encode_oa(user_value):
     if user_value <= 0:
         return 0
     try:
-        v = float(user_value) / _OA_Y0
-        t = _fast_log2(v)
-        if t < 0:
-            return t / 4.0 + 4.0
-        else:
-            return t / 2.0 + 4.0
+        return math.log(user_value / OA_A) / OA_B
     except:
         return 0
 
@@ -308,21 +284,6 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
     total_changes = 0
 
     # =========================================================================
-    # MAPEAR SCHEDULES (nome -> indice)
-    # =========================================================================
-    schedule_name_to_idx = {}
-    with zipfile.ZipFile(e3a_path, 'r') as zf:
-        if 'HAP51SCH.DAT' in zf.namelist():
-            sch_data = zf.read('HAP51SCH.DAT')
-            SCHEDULE_RECORD_SIZE = 792
-            num_schedules = len(sch_data) // SCHEDULE_RECORD_SIZE
-            for i in range(num_schedules):
-                offset = i * SCHEDULE_RECORD_SIZE
-                name = sch_data[offset:offset+50].split(b'\x00')[0].decode('latin-1').strip()
-                if name:
-                    schedule_name_to_idx[name] = i + 1  # 1-based index
-
-    # =========================================================================
     # MAPEAR WALL ASSEMBLIES (nome -> indice)
     # =========================================================================
     wall_name_to_idx = {}
@@ -335,9 +296,6 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
 
     # Lista para guardar alteracoes de wall type para actualizar Space_Wall_Links
     wall_type_changes = []  # [(space_index, wall_idx), ...]
-
-    # Lista para guardar alteracoes de schedules para actualizar Space_Schedule_Links
-    schedule_changes = []  # [(space_name, space_idx, schedule_id), ...]
 
     # =========================================================================
     # MAPEAR ROOF ASSEMBLIES (nome -> indice)
@@ -384,18 +342,18 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
         # 8: Activity Level - código
         9: (586, 'f', w_to_btu),       # Sensible
         10: (590, 'f', w_to_btu),      # Latent
-        11: (594, 'schedule', None),   # People Schedule ID (2 bytes)
+        # 11: Schedule
 
         # LIGHTING
         12: (600, 'f', None),          # Task Lighting
         13: (606, 'f', None),          # General Lighting
         # 14: Fixture Type
         15: (610, 'f', None),          # Ballast Mult
-        16: (616, 'schedule', None),   # Lighting Schedule ID (2 bytes)
+        # 16: Schedule
 
         # EQUIPMENT
         17: (656, 'f', w_m2_to_w_ft2), # Equipment W/m2
-        18: (660, 'schedule', None),   # Equipment Schedule ID (2 bytes)
+        # 18: Schedule
 
         # MISC
         19: (632, 'f', w_to_btu),      # Sensible
@@ -498,19 +456,6 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
                         spc_inx_vals['area'] = val_converted
                     elif field_idx == 7:  # Occupancy
                         spc_inx_vals['occ'] = val  # Occupancy nao tem conversao
-                elif ftype == 'schedule':
-                    # Mapear nome do schedule para ID
-                    schedule_name = str(ref_value).strip()
-                    if schedule_name in schedule_name_to_idx:
-                        schedule_id = schedule_name_to_idx[schedule_name]
-                        # Schedule ID é 2 bytes (uint16)
-                        struct.pack_into('<H', spc_data, abs_offset, schedule_id)
-                        changes += 1
-                        # Guardar para actualizar Space_Schedule_Links no MDB
-                        space_idx_1based = space_indices[space_name] + 1  # MDB usa 1-based
-                        schedule_changes.append((space_name, space_idx_1based, schedule_id))
-                    else:
-                        print(f"    WARN: Schedule '{schedule_name}' not found")
                 elif ftype.startswith('s'):
                     str_len = int(ftype[1:])
                     encoded = str(ref_value).encode('latin-1')[:str_len-1]
@@ -539,8 +484,8 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
                         # Guardar para actualizar Space_Roof_Links (se existir)
                         space_idx_1based = space_indices[space_name]
                         roof_type_changes.append((space_name, space_idx_1based, roof_idx))
-            except Exception as e:
-                print(f"    ERROR: {e}")
+            except:
+                pass
 
         if spc_inx_vals['area'] is not None or spc_inx_vals['occ'] is not None:
             spc_changes_for_inx.append(spc_inx_vals)
@@ -877,18 +822,17 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
         if rof_data:
             with open(os.path.join(tmpdir, 'HAP51ROF.DAT'), 'wb') as f:
                 f.write(rof_data)
-        inx_path = None
         if inx_data:
-            inx_path = os.path.join(tmpdir, 'HAP51INX.MDB')
-            with open(inx_path, 'wb') as f:
+            with open(os.path.join(tmpdir, 'HAP51INX.MDB'), 'wb') as f:
                 f.write(inx_data)
 
         # =====================================================================
         # ACTUALIZAR Space_Wall_Links no HAP51INX.MDB (para Wall Type aparecer no HAP)
         # =====================================================================
-        if wall_type_changes and inx_path:
+        if wall_type_changes:
             try:
                 import pyodbc
+                inx_path = os.path.join(tmpdir, 'HAP51INX.MDB')
                 conn = pyodbc.connect(f'DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={inx_path}')
                 cursor = conn.cursor()
 
@@ -925,47 +869,6 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
                 print(f"  Space_Wall_Links: {wall_links_updated} links actualizados")
             except Exception as e:
                 print(f"  AVISO: Não foi possível actualizar Space_Wall_Links: {e}")
-
-        # =====================================================================
-        # ACTUALIZAR Space_Schedule_Links no MDB
-        # =====================================================================
-        if schedule_changes and inx_path:
-            try:
-                import pyodbc
-                conn = pyodbc.connect(f'DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={inx_path}')
-                cursor = conn.cursor()
-
-                # Obter mapeamento de space names para SpaceIndex.nIndex
-                cursor.execute('SELECT nIndex, szName FROM SpaceIndex')
-                space_name_to_inx_id = {row[1]: row[0] for row in cursor.fetchall()}
-
-                # Agrupar schedules por espaço
-                space_schedules = {}  # {space_name: set(schedule_ids)}
-                for space_name, space_idx, schedule_id in schedule_changes:
-                    if space_name not in space_schedules:
-                        space_schedules[space_name] = set()
-                    space_schedules[space_name].add(schedule_id)
-
-                schedule_links_updated = 0
-                for space_name, schedule_ids in space_schedules.items():
-                    if space_name not in space_name_to_inx_id:
-                        continue
-                    space_id = space_name_to_inx_id[space_name]
-
-                    # Remover links existentes para este espaço
-                    cursor.execute('DELETE FROM Space_Schedule_Links WHERE Space_ID = ?', (space_id,))
-
-                    # Inserir novos links
-                    for schedule_id in schedule_ids:
-                        cursor.execute('INSERT INTO Space_Schedule_Links (Space_ID, Schedule_ID) VALUES (?, ?)',
-                                       (space_id, schedule_id))
-                        schedule_links_updated += 1
-
-                conn.commit()
-                conn.close()
-                print(f"  Space_Schedule_Links: {schedule_links_updated} links actualizados")
-            except Exception as e:
-                print(f"  AVISO: Não foi possível actualizar Space_Schedule_Links: {e}")
 
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             for root, dirs, files in os.walk(tmpdir):

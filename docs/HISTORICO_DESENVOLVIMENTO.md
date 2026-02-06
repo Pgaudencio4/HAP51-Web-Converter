@@ -65,23 +65,16 @@ Offset  Bytes  Campo
 
 ### Codificacao do Outdoor Air (OA)
 
-**NOTA:** A formula exponencial original (OA_A/OA_B) estava ERRADA.
-A formula correcta foi descoberta em 2026-02-05 apos calibracao com 43 pontos.
-Ver `docs/OA_FORMULA.md` para documentacao completa.
+O valor de OA e codificado usando uma funcao exponencial:
 
 ```python
-# Formula exacta: fast_exp2 piecewise-linear
-import math
-Y0 = 512.0 * (28.316846592 / 60.0)  # 241.637 L/s (512 CFM)
+# Encoding (valor visivel -> interno)
+OA_A = 0.00470356
+OA_B = 2.71147770
+interno = log(valor / OA_A) / OA_B
 
-# Decode: x (interno) -> L/s
-k = 4.0 if x < 4.0 else 2.0
-t = k * (x - 4.0)
-n = math.floor(t)
-valor_ls = Y0 * (2.0 ** n) * (1.0 + (t - n))
-
-# Encode: L/s -> x (interno)
-# t = fast_log2(valor / Y0), x = t/k + 4
+# Decoding (interno -> valor visivel)
+valor = OA_A * exp(OA_B * interno)
 ```
 
 ### Conversoes de Unidades
