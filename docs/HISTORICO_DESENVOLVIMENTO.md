@@ -314,3 +314,29 @@ pip install openpyxl pyodbc
 ---
 
 *Documento gerado em Janeiro 2026*
+*Actualizado em Fevereiro 2026*
+
+---
+
+## Validacao Malhoa22 - Fevereiro 2026
+
+### Resultado: CONVERSOR VALIDADO - Tudo Correcto
+
+Analise exaustiva do projecto Malhoa22 (140 espacos, 71 janelas, 12 pisos + 6 caves) confirmou que:
+
+1. **E3A = Excel:** Os dados binarios no E3A correspondem exactamente ao Excel fonte
+2. **HAP = E3A:** O HAP le correctamente todos os dados (confirmado via SPACE.RTF, WINDOW.RTF e screenshots do HAP UI)
+3. **Relatorio = Excel:** O relatorio "Minimum Energy Performance Calculator" do HAP mostra Wall=2773 m2 e Glaz=1646 m2, identico ao Excel
+
+### Discrepancia inicial (resolvida)
+
+O Building Simulation Report mostrava valores diferentes (Wall=2197, Glaz=1559) porque o utilizador tinha espacos duplicados no Air System. Apos corrigir, o relatorio bateu certo.
+
+### Achados tecnicos documentados
+
+Ver `docs/ANALISE_MALHOA22_FEV2026.md` para detalhes completos sobre:
+- Confirmacao empirica do wall block format (34 bytes)
+- Confirmacao dos direction codes (N=1, E=5, S=9, SW=11, W=13)
+- Confirmacao dos offsets de janela (H=257, W=261)
+- Armadilhas no parsing de SPACE.RTF (espacos com Roofs)
+- Diferenca entre relatorios HAP (Building Sim vs Min Energy Performance)
