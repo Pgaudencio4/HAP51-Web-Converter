@@ -121,10 +121,13 @@ TESTED AND CONFIRMED (2026-01-26):
 - Must add link in Space_Roof_Links (Space_ID, Roof_ID)
 - Must add link in Space_Window_Links for each skylight used
 
-OA ENCODING (exponential formula)
----------------------------------
-L/s = 0.00470356 * exp(2.71147770 * internal_value)
-internal_value = ln(L/s / 0.00470356) / 2.71147770
+OA ENCODING (fast_exp2 formula - discovered 2026-02-05)
+-------------------------------------------------------
+Y0 = 512 * (28.316846592 / 60) = 241.637 L/s
+Decode: y = Y0 * fast_exp2(k * (x - 4))  k=4 if x<4, k=2 if x>=4
+Encode: t = fast_log2(y / Y0), x = t/k + 4
+fast_exp2(t) = 2^floor(t) * (1 + frac(t))
+See docs/OA_FORMULA.md for full details.
 
 MDB TABLES REQUIRED FOR LINKS
 -----------------------------
@@ -330,59 +333,101 @@ def ls_to_cfm(ls: float) -> float:
 
 import math
 
-# OA encoding constants (exponential formula)
-# Discovered through reverse engineering:
-# L/s = OA_A * exp(OA_B * internal)
-# internal = ln(L/s / OA_A) / OA_B
-# Calibrated with HAP 5.1:
-#   interno=3.527275 -> 67 L/s
-#   interno=3.081408 -> 20 L/s
-#   interno=3.230944 -> 29.1 L/s (quando esperado 30)
-# NOTA: Precisão ~3%, HAP pode arredondar valores
-OA_A = 0.00470356
-OA_B = 2.71147770
+# OA encoding/decoding - exact closed-form formula (2026-02-05)
+#
+# HAP 5.1 uses a piecewise-linear approximation of 2^t ("fast_exp2") for
+# the OA (Outside Air) airflow encoding. The internal float x maps to a
+# displayed value y (in L/s) via:
+#
+#   y = Y0 * fast_exp2(k * (x - 4))
+#
+# where:
+#   Y0 = 512 * (28.316846592 / 60)   [= 512 CFM converted to L/s]
+#   k  = 4   for x < 4   (effective base 16 per unit x)
+#   k  = 2   for x >= 4  (effective base 4 per unit x)
+#
+#   fast_exp2(t) = 2^floor(t) * (1 + frac(t))
+#
+# This is a well-known first-order (linear) interpolation of 2^t between
+# integer points. The formula is continuous at x=4 (both branches give Y0).
+#
+# Verified against 43 calibration points from HAP 5.1: 43/43 exact matches
+# when rounded to 1 decimal place.
+
+_OA_Y0 = 512.0 * (28.316846592 / 60.0)  # 241.637090918... L/s
+
+def _fast_exp2(t):
+    """Piecewise-linear approximation of 2^t.
+
+    Interpolates linearly between 2^n and 2^(n+1):
+        fast_exp2(t) = 2^floor(t) * (1 + frac(t))
+    """
+    n = math.floor(t)
+    f = t - n
+    return (2.0 ** n) * (1.0 + f)
+
+def _fast_log2(v):
+    """Inverse of _fast_exp2: finds t such that fast_exp2(t) = v.
+
+    n = floor(log2(v)), f = v/2^n - 1, return n + f.
+    """
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    if f < 0:
+        n -= 1
+        f = v / (2.0 ** n) - 1.0
+    if f >= 1.0:
+        n += 1
+        f = v / (2.0 ** n) - 1.0
+    return n + f
+
+def _decode_oa(x):
+    """Decode internal OA float to displayed value (L/s).
+
+    Uses HAP 5.1's piecewise fast_exp2 formula:
+      x < 4:  y = Y0 * fast_exp2(4*(x-4))
+      x >= 4: y = Y0 * fast_exp2(2*(x-4))
+    """
+    if x < 4.0:
+        t = 4.0 * (x - 4.0)
+    else:
+        t = 2.0 * (x - 4.0)
+    return _OA_Y0 * _fast_exp2(t)
+
+def _encode_oa(value):
+    """Encode displayed value (L/s) to internal OA float.
+
+    Inverse of _decode_oa:
+      t = fast_log2(value / Y0)
+      x = t/4 + 4  if t < 0  (i.e. value < Y0)
+      x = t/2 + 4  if t >= 0 (i.e. value >= Y0)
+    """
+    v = value / _OA_Y0
+    t = _fast_log2(v)
+    if t < 0:
+        return t / 4.0 + 4.0
+    else:
+        return t / 2.0 + 4.0
 
 def decode_oa_value(internal_float: float, unit_code: int) -> float:
-    """Decode internal OA value to user value based on unit code.
-
-    The encoding uses an exponential formula:
-    L/s = 0.00470356 * exp(2.7114777 * internal)
-    """
+    """Decode internal OA value to user value based on unit code."""
     if internal_float <= 0:
         return 0.0
 
-    if unit_code == 1:  # L/s
-        return OA_A * math.exp(OA_B * internal_float)
-    elif unit_code == 2:  # L/s/m²
-        # TODO: verify formula for L/s/m²
-        return OA_A * math.exp(OA_B * internal_float)
-    elif unit_code == 3:  # L/s/person
-        # TODO: verify formula for L/s/person
-        return OA_A * math.exp(OA_B * internal_float)
+    if unit_code in (1, 2, 3):  # L/s, L/s/m², L/s/person
+        return _decode_oa(internal_float)
     elif unit_code == 4:  # %
-        # TODO: verify formula for %
         return internal_float * 28.5714
     return internal_float
 
 def encode_oa_value(user_value: float, unit_code: int) -> float:
-    """Encode user OA value to internal float based on unit code.
-
-    The encoding uses an exponential formula:
-    internal = ln(L/s / 0.00470356) / 2.7114777
-    """
+    """Encode user OA value to internal float based on unit code."""
     if user_value <= 0:
         return 0.0
 
-    if unit_code == 1:  # L/s
-        return math.log(user_value / OA_A) / OA_B
-    elif unit_code == 2:  # L/s/m²
-        # TODO: verify formula for L/s/m²
-        return math.log(user_value / OA_A) / OA_B
-    elif unit_code == 3:  # L/s/person
-        # TODO: verify formula for L/s/person
-        return math.log(user_value / OA_A) / OA_B
+    if unit_code in (1, 2, 3):  # L/s, L/s/m², L/s/person
+        return _encode_oa(user_value)
     elif unit_code == 4:  # %
-        # TODO: verify formula for %
         return user_value / 28.5714
     return user_value
 

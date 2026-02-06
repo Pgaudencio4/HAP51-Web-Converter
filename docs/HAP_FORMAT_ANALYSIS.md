@@ -55,33 +55,39 @@ O ficheiro `.E3A` e um arquivo **ZIP** contendo:
 | 46-49 | 4 | float | OA Value (interno) | Valor codificado (ver formula) |
 | 50-51 | 2 | uint16 | OA Unit Code | 1=L/s, 2=L/s/m2, 3=L/s/pessoa, 4=% |
 
-**Formulas de Conversao:**
+**Formulas de Conversao (Exactas - descobertas 2026-02-05):**
+
+**AVISO:** As formulas lineares originais estavam ERRADAS. A codificacao OA
+usa uma funcao `fast_exp2` (nao-linear). Ver `docs/OA_FORMULA.md` para detalhes completos.
 
 Para **LER** o valor de OA do ficheiro:
-```
+```python
+import math
+
+Y0 = 512.0 * (28.316846592 / 60.0)  # 241.637 L/s
+
 float_interno = struct.unpack('<f', data[offset+46:offset+50])[0]
 unit_code = struct.unpack('<H', data[offset+50:offset+52])[0]
 
-if unit_code == 1:  # L/s
-    OA_Ls = float_interno * 31.0336 / 2.11888
-elif unit_code == 2:  # L/s/m2
-    OA_Ls_m2 = float_interno * 3.8484 / 0.19685
-elif unit_code == 3:  # L/s/pessoa
-    OA_Ls_pessoa = float_interno * 4.1046 / 2.11888
+if unit_code in (1, 2, 3):  # L/s, L/s/m2, L/s/pessoa
+    k = 4.0 if float_interno < 4.0 else 2.0
+    t = k * (float_interno - 4.0)
+    n = math.floor(t)
+    OA = Y0 * (2.0 ** n) * (1.0 + (t - n))
 elif unit_code == 4:  # %
-    OA_percent = float_interno * 28.5714
+    OA = float_interno * 28.5714
 ```
 
 Para **ESCREVER** o valor de OA no ficheiro:
-```
-if unit_code == 1:  # L/s
-    float_interno = OA_Ls * 2.11888 / 31.0336
-elif unit_code == 2:  # L/s/m2
-    float_interno = OA_Ls_m2 * 0.19685 / 3.8484
-elif unit_code == 3:  # L/s/pessoa
-    float_interno = OA_Ls_pessoa * 2.11888 / 4.1046
+```python
+if unit_code in (1, 2, 3):  # L/s, L/s/m2, L/s/pessoa
+    v = OA / Y0
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    t = n + f  # fast_log2
+    float_interno = t / 4.0 + 4.0 if t < 0 else t / 2.0 + 4.0
 elif unit_code == 4:  # %
-    float_interno = OA_percent / 28.5714
+    float_interno = OA / 28.5714
 ```
 
 ### Campos Parcialmente Identificados
@@ -159,28 +165,37 @@ Os seguintes campos ainda NAO foram localizados nos registos de espaco:
 ```python
 import struct
 import zipfile
+import math
 
-def decode_oa_value(float_interno, unit_code):
-    """Converte valor interno OA para valor em unidades do utilizador"""
-    if unit_code == 1:  # L/s
-        return float_interno * 31.0336 / 2.11888
-    elif unit_code == 2:  # L/s/m2
-        return float_interno * 3.8484 / 0.19685
-    elif unit_code == 3:  # L/s/pessoa
-        return float_interno * 4.1046 / 2.11888
-    elif unit_code == 4:  # %
-        return float_interno * 28.5714
+# OA encoding uses fast_exp2 (NOT linear). See docs/OA_FORMULA.md
+_OA_Y0 = 512.0 * (28.316846592 / 60.0)  # 241.637 L/s
+
+def _fast_exp2(t):
+    n = math.floor(t)
+    return (2.0 ** n) * (1.0 + (t - n))
+
+def _fast_log2(v):
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    if f < 0: n -= 1; f = v / (2.0 ** n) - 1.0
+    if f >= 1.0: n += 1; f = v / (2.0 ** n) - 1.0
+    return n + f
+
+def decode_oa_value(x, unit_code):
+    """Descodifica valor interno OA. Ver docs/OA_FORMULA.md"""
+    if unit_code in (1, 2, 3):
+        k = 4.0 if x < 4.0 else 2.0
+        return _OA_Y0 * _fast_exp2(k * (x - 4.0))
+    elif unit_code == 4:
+        return x * 28.5714
     return 0
 
 def encode_oa_value(oa_value, unit_code):
-    """Converte valor OA do utilizador para valor interno"""
-    if unit_code == 1:  # L/s
-        return oa_value * 2.11888 / 31.0336
-    elif unit_code == 2:  # L/s/m2
-        return oa_value * 0.19685 / 3.8484
-    elif unit_code == 3:  # L/s/pessoa
-        return oa_value * 2.11888 / 4.1046
-    elif unit_code == 4:  # %
+    """Codifica valor OA do utilizador. Ver docs/OA_FORMULA.md"""
+    if unit_code in (1, 2, 3):
+        t = _fast_log2(oa_value / _OA_Y0)
+        return t / 4.0 + 4.0 if t < 0 else t / 2.0 + 4.0
+    elif unit_code == 4:
         return oa_value / 28.5714
     return 0
 

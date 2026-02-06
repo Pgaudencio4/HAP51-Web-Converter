@@ -30,29 +30,40 @@ Each space in `HAP51SPC.DAT` occupies exactly 682 bytes. The first record (offse
 | 60-63 | 4 | uint32 | Unknown | Typical value: 2 |
 | 64-71 | 8 | - | Unknown | |
 
-**OA Conversion Formulas (Verified):**
-```python
-# Reading (internal float to user value):
-def decode_oa(internal_float, unit_code):
-    if unit_code == 1:  # L/s
-        return internal_float * 31.0336 / 2.11888
-    elif unit_code == 2:  # L/s/m²
-        return internal_float * 3.8484 / 0.19685
-    elif unit_code == 3:  # L/s/person
-        return internal_float * 4.1046 / 2.11888
-    elif unit_code == 4:  # %
-        return internal_float * 28.5714
+**OA Conversion Formula (Exact - discovered 2026-02-05):**
 
-# Writing (user value to internal float):
-def encode_oa(user_value, unit_code):
-    if unit_code == 1:  # L/s
-        return user_value * 2.11888 / 31.0336
-    elif unit_code == 2:  # L/s/m²
-        return user_value * 0.19685 / 3.8484
-    elif unit_code == 3:  # L/s/person
-        return user_value * 2.11888 / 4.1046
-    elif unit_code == 4:  # %
-        return user_value / 28.5714
+The OA encoding uses a **piecewise-linear fast_exp2** approximation of 2^t,
+NOT a simple linear or exponential function. See `docs/OA_FORMULA.md` for full details.
+
+```python
+import math
+
+Y0 = 512.0 * (28.316846592 / 60.0)  # = 241.637 L/s (512 CFM)
+
+def fast_exp2(t):
+    """Piecewise-linear approximation: 2^floor(t) * (1 + frac(t))"""
+    n = math.floor(t)
+    return (2.0 ** n) * (1.0 + (t - n))
+
+def fast_log2(v):
+    """Inverse of fast_exp2"""
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    if f < 0: n -= 1; f = v / (2.0 ** n) - 1.0
+    if f >= 1.0: n += 1; f = v / (2.0 ** n) - 1.0
+    return n + f
+
+# Decode: internal float x -> displayed L/s
+def decode_oa(x):
+    k = 4.0 if x < 4.0 else 2.0
+    return Y0 * fast_exp2(k * (x - 4.0))
+
+# Encode: displayed L/s -> internal float x
+def encode_oa(value_ls):
+    t = fast_log2(value_ls / Y0)
+    return t / 4.0 + 4.0 if t < 0 else t / 2.0 + 4.0
+
+# For unit_code 4 (%): internal = value / 28.5714
 ```
 
 ---

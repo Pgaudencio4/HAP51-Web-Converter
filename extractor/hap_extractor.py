@@ -61,11 +61,19 @@ OA_UNIT_NAMES = {
     0: '', 1: 'L/s', 2: 'L/s/m2', 3: 'L/s/person', 4: '%'
 }
 
-# OA decoding constants
-OA_A = 0.00470356
-OA_B = 2.71147770
-
 import math
+
+# OA decoding - exact closed-form formula (2026-02-05)
+# HAP 5.1 uses a piecewise-linear "fast_exp2" approximation:
+#   y = Y0 * fast_exp2(k * (x - 4))
+#   k=4 for x<4 (base 16), k=2 for x>=4 (base 4)
+#   Y0 = 512 CFM in L/s = 241.637...
+_OA_Y0 = 512.0 * (28.316846592 / 60.0)
+
+def _fast_exp2(t):
+    n = math.floor(t)
+    f = t - n
+    return (2.0 ** n) * (1.0 + f)
 
 # =============================================================================
 # CONVERSÕES (Imperial para SI)
@@ -102,7 +110,11 @@ def decode_oa(internal_float):
     if internal_float <= 0:
         return 0
     try:
-        return OA_A * math.exp(OA_B * internal_float)
+        if internal_float < 4.0:
+            t = 4.0 * (internal_float - 4.0)
+        else:
+            t = 2.0 * (internal_float - 4.0)
+        return _OA_Y0 * _fast_exp2(t)
     except:
         return 0
 

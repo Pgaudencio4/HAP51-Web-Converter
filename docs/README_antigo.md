@@ -89,13 +89,15 @@ O HAP armazena valores em unidades imperiais. A biblioteca converte automaticame
 
 ## Fórmulas OA (Ar Exterior)
 
-O valor de OA é codificado internamente. Fórmulas verificadas:
+**NOTA:** As fórmulas lineares abaixo estavam INCORRECTAS.
+A fórmula correcta é não-linear (fast_exp2). Ver `docs/OA_FORMULA.md`.
 
 ```python
-# L/s:        interno = valor × 2.11888 / 31.0336
-# L/s/m²:     interno = valor × 0.19685 / 3.8484
-# L/s/pessoa: interno = valor × 2.11888 / 4.1046
-# %:          interno = valor / 28.5714
+# Formula correcta (descoberta 2026-02-05):
+# Y0 = 512 CFM em L/s = 241.637
+# Decode: y = Y0 * fast_exp2(k * (x - 4))   k=4 se x<4, k=2 se x>=4
+# fast_exp2(t) = 2^floor(t) * (1 + frac(t))
+# %: interno = valor / 28.5714 (esta sim é linear)
 ```
 
 ## Ficheiros HAP Relacionados

@@ -115,32 +115,38 @@ Hex: 0300 BC2A8142 0300 0100 0000 0100 ...
 - `3` = L/s/person (airflow per occupant)
 - `4` = % (percentage of supply air)
 
-**Conversion Formulas - Reading:**
-```python
-def decode_oa(float_value, unit_code):
-    if unit_code == 1:  # L/s
-        return float_value * 31.0336 / 2.11888
-    elif unit_code == 2:  # L/s/m²
-        return float_value * 3.8484 / 0.19685
-    elif unit_code == 3:  # L/s/person
-        return float_value * 4.1046 / 2.11888
-    elif unit_code == 4:  # %
-        return float_value * 28.5714
-    return 0
-```
+**Conversion Formula (Exact - discovered 2026-02-05):**
 
-**Conversion Formulas - Writing:**
+The OA value is encoded using a **piecewise-linear fast_exp2** function.
+This is NOT a simple linear scaling. See `docs/OA_FORMULA.md` for full derivation.
+
 ```python
-def encode_oa(oa_value, unit_code):
-    if unit_code == 1:  # L/s
-        return oa_value * 2.11888 / 31.0336
-    elif unit_code == 2:  # L/s/m²
-        return oa_value * 0.19685 / 3.8484
-    elif unit_code == 3:  # L/s/person
-        return oa_value * 2.11888 / 4.1046
-    elif unit_code == 4:  # %
-        return oa_value / 28.5714
-    return 0
+import math
+
+Y0 = 512.0 * (28.316846592 / 60.0)  # = 241.637 L/s (512 CFM)
+
+def fast_exp2(t):
+    n = math.floor(t)
+    return (2.0 ** n) * (1.0 + (t - n))
+
+def fast_log2(v):
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    if f < 0: n -= 1; f = v / (2.0 ** n) - 1.0
+    if f >= 1.0: n += 1; f = v / (2.0 ** n) - 1.0
+    return n + f
+
+# Decode (read): internal float x -> L/s
+def decode_oa(x):
+    k = 4.0 if x < 4.0 else 2.0
+    return Y0 * fast_exp2(k * (x - 4.0))
+
+# Encode (write): L/s -> internal float x
+def encode_oa(value_ls):
+    t = fast_log2(value_ls / Y0)
+    return t / 4.0 + 4.0 if t < 0 else t / 2.0 + 4.0
+
+# Unit code 4 (%): simple linear: internal = value / 28.5714
 ```
 
 #### Thermostat Settings
@@ -238,27 +244,36 @@ class HAPSpace:
     equipment_w_m2: float
 
 
-def decode_oa_value(float_interno: float, unit_code: int) -> float:
-    """Convert internal OA value to user units."""
-    if unit_code == 1:  # L/s
-        return float_interno * 31.0336 / 2.11888
-    elif unit_code == 2:  # L/s/m²
-        return float_interno * 3.8484 / 0.19685
-    elif unit_code == 3:  # L/s/person
-        return float_interno * 4.1046 / 2.11888
+import math
+
+# OA encoding uses fast_exp2 (NOT linear). See docs/OA_FORMULA.md
+_OA_Y0 = 512.0 * (28.316846592 / 60.0)  # 241.637 L/s
+
+def _fast_exp2(t):
+    n = math.floor(t)
+    return (2.0 ** n) * (1.0 + (t - n))
+
+def _fast_log2(v):
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    if f < 0: n -= 1; f = v / (2.0 ** n) - 1.0
+    if f >= 1.0: n += 1; f = v / (2.0 ** n) - 1.0
+    return n + f
+
+def decode_oa_value(x: float, unit_code: int) -> float:
+    """Decode internal OA float to user value. See docs/OA_FORMULA.md"""
+    if unit_code in (1, 2, 3):  # L/s, L/s/m², L/s/person
+        k = 4.0 if x < 4.0 else 2.0
+        return _OA_Y0 * _fast_exp2(k * (x - 4.0))
     elif unit_code == 4:  # %
-        return float_interno * 28.5714
+        return x * 28.5714
     return 0.0
 
-
 def encode_oa_value(oa_value: float, unit_code: int) -> float:
-    """Convert user OA value to internal format."""
-    if unit_code == 1:  # L/s
-        return oa_value * 2.11888 / 31.0336
-    elif unit_code == 2:  # L/s/m²
-        return oa_value * 0.19685 / 3.8484
-    elif unit_code == 3:  # L/s/person
-        return oa_value * 2.11888 / 4.1046
+    """Encode user OA value to internal float. See docs/OA_FORMULA.md"""
+    if unit_code in (1, 2, 3):  # L/s, L/s/m², L/s/person
+        t = _fast_log2(oa_value / _OA_Y0)
+        return t / 4.0 + 4.0 if t < 0 else t / 2.0 + 4.0
     elif unit_code == 4:  # %
         return oa_value / 28.5714
     return 0.0
@@ -408,7 +423,12 @@ Breakdown:
 - Bytes 46-49: 6A 7C 5A 40 = float 3.4138
 - Bytes 50-51: 01 00 = unit code 1 (L/s)
 
-Calculation: 3.4138 * 31.0336 / 2.11888 = 50.00 L/s
+Calculation (fast_exp2 formula):
+  x = 3.4138, x < 4.0 so k = 4
+  t = 4 * (3.4138 - 4) = -2.3448
+  fast_exp2(-2.3448) = 2^(-3) * (1 + 0.6552) = 0.125 * 1.6552 = 0.2069
+  y = 241.637 * 0.2069 = 50.0 L/s
+See docs/OA_FORMULA.md for the formula.
 ```
 
 ### Example: 50% OA Requirement
