@@ -340,3 +340,101 @@ Ver `docs/ANALISE_MALHOA22_FEV2026.md` para detalhes completos sobre:
 - Confirmacao dos offsets de janela (H=257, W=261)
 - Armadilhas no parsing de SPACE.RTF (espacos com Roofs)
 - Diferenca entre relatorios HAP (Building Sim vs Min Energy Performance)
+
+---
+
+## Analise Coluna-a-Coluna - Fevereiro 2026
+
+### Resultado: 2 bugs encontrados e corrigidos
+
+Analise exaustiva de todas as 147 colunas do Excel vs codigo do conversor.
+
+### BUG 1 (CRITICO): Wall block offsets desalinhados - `excel_to_hap.py`
+
+O wall block (34 bytes) tem o layout: +0=dir, +2=area, +6=wall_id, +8=win1_id, **+10=win2_id**, +12=win1_qty, +14=win2_qty, +16=door_id, +18=door_qty.
+
+O codigo tinha um comentario errado ("+10 reservado") e escrevia win2_id no offset +14, win2_qty no +16, door_id no +18 e door_qty no +20 - tudo deslocado 2-4 bytes. Nao afectou Malhoa22 porque nenhum espaco usa Window 2 ou Doors (valores todos 0).
+
+**Corrigido:** Offsets alinhados com o layout correcto confirmado em `hap_library.py:parse_wall_block()`.
+
+### BUG 2 (MEDIO): Lighting schedule offset - `hap_library.py`
+
+`excel_to_hap.py` escreve lighting_schedule_id no offset **616** (validado com HAP). `hap_library.py` lia/escrevia no offset 614 (errado).
+
+**Corrigido:** `hap_library.py` parse_space e encode_space alterados de 614 para 616.
+
+### Campos todos verificados OK
+
+Todas as 147 colunas do Excel foram verificadas: GENERAL (6), PEOPLE (5), LIGHTING (5), EQUIPMENT (2), MISC (4), INFILTRATION (4), FLOORS (13), PARTITIONS (12), WALLS (72), ROOFS (24) - tudo lido e escrito correctamente (excepto os 2 bugs acima, ja corrigidos).
+
+---
+
+## Auditoria Completa Documentacao vs Codigo - Fevereiro 2026
+
+### Resultado: 5 bugs adicionais encontrados e corrigidos
+
+Auditoria cruzando toda a documentacao existente com todos os ficheiros de codigo (conversor, extractor, editor, library).
+
+### BUG 3 (CRITICO): `hap_extractor.py` wall block offsets errados
+
+O extractor lia win2_type_id de +14 (correcto: +10), win2_qty de +18 (correcto: +14), door_type_id de +20 (correcto: +16), door_qty de +22 (correcto: +18). Mesma confusao que o BUG 1 do conversor.
+
+**Corrigido:** Offsets alinhados com `hap_library.py:parse_wall_block()`.
+
+### BUG 4 (MEDIO): `hap_extractor.py` Window SHGC offset 433 -> 273
+
+O extractor lia SHGC do offset 433 em vez de 273 (confirmado em ANALISE_MALHOA22 e excel_to_hap.py).
+
+**Corrigido:** Offset alterado para 273.
+
+### BUG 5 (MEDIO): `editor_e3a.py` Window SHGC offset 433 -> 273
+
+O editor escrevia SHGC no offset 433 em vez de 273 (mesma inconsistencia do extractor).
+
+**Corrigido:** Offset alterado para 273.
+
+### BUG 6 (MEDIO): `hap_library.py` infiltration offsets 492 -> 554
+
+`parse_space()` e `encode_space()` usavam offsets 492-526 para infiltracao, que sao na verdade a zona de FLOOR data. Os offsets correctos sao 554-572 (confirmado em excel_to_hap.py e na documentacao do proprio ficheiro).
+
+**Corrigido:** parse_space e encode_space alterados para usar offsets 556/562.
+
+### BUG 7 (MEDIO): `hap_library.py` thermostat vs partition overlap
+
+`parse_space()` lia "thermostat" dos offsets 440-492 (thermostat_schedule_id, cooling/heating setpoints), mas estes offsets sao na verdade Partition 1 (440-465) e Partition 2 (466-491), conforme confirmado em excel_to_hap.py e hap_extractor.py.
+
+**Corrigido:** parse_space e encode_space agora leem/escrevem correctamente Partition 1 e Partition 2 com todos os campos (type, area, u-value, 4 temperaturas).
+
+### Documentacao header `hap_library.py` limpa
+
+Removidas entradas duplicadas/conflituantes na tabela de offsets do header (thermostat vs partition2, floor temps vs partition temps).
+
+---
+
+## Auditoria Editor + Formula OA - Fevereiro 2026
+
+### Resultado: 2 bugs adicionais encontrados e corrigidos
+
+### BUG 8 (MEDIO): `editor_e3a.py` missing `data_only=True`
+
+`openpyxl.load_workbook(editor_xlsx)` nao avaliava formulas Excel. Quando o utilizador preenchia OA com formulas como `=M4/0.8`, o valor era lido como string "=M4/0.8" em vez do valor numerico. O `float()` falhava silenciosamente no try/except, ignorando a alteracao.
+
+**Corrigido:** Linha 299 alterada para `openpyxl.load_workbook(editor_xlsx, data_only=True)`.
+
+### BUG 9 (CRITICO): Formula OA errada em editor, library e extractor
+
+O conversor (`excel_to_hap.py`) usava a formula piecewise correcta `fast_exp2/fast_log2` (descoberta 2026-02-05), mas os outros 3 ficheiros ainda usavam a formula antiga:
+- `editor_e3a.py`: `log(val / 0.00470356) / 2.71147770`
+- `hap_library.py`: `decode_oa_value` e `encode_oa_value` com mesma formula antiga
+- `hap_extractor.py`: `decode_oa` com mesma formula antiga
+
+**Impacto:** Para OA=1323 L/s, a formula antiga dava 606 L/s no HAP (erro de 54%!). Para OA=500 L/s, erro de 26%.
+
+**Corrigido:** Todos os 3 ficheiros actualizados com formula piecewise identica ao conversor:
+- `y = Y0 * fast_exp2(k * (x - 4))` com k=4 para x<4, k=2 para x>=4
+- Y0 = 512 CFM em L/s = 241.637...
+- Header de `hap_library.py` actualizado com formula correcta
+
+### Auditoria exaustiva final (9 bugs totais)
+
+Auditoria completa dos 4 ficheiros (conversor, library, extractor, editor) confirmou que apos os 9 bugs corrigidos, **todos os offsets, formulas, conversoes e estruturas binarias estao 100% consistentes** entre todos os ficheiros.

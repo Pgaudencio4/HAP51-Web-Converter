@@ -36,10 +36,8 @@ Offset    Size  Field
 [50-52]      2  OA unit code (1=L/s, 2=L/s/m², 3=L/s/person, 4=%)
 [72-344]   272  Wall blocks (8 x 34 bytes each)
 [344-440]   96  Roof blocks (4 x 24 bytes each)
-[450-454]    4  Floor Uncond Space Max Temp (°F, float) - also at 476, 526
-[454-458]    4  Floor Ambient at Max Temp (°F, float) - also at 480, 530
-[458-462]    4  Floor Uncond Space Min Temp (°F, float) - also at 484, 534
-[462-466]    4  Floor Ambient at Min Temp (°F, float) - also at 488, 538
+[440-466]   26  Partition 1: Type(H) Area(f) U(f) UncMax(f) OutMax(f) UncMin(f) OutMin(f)
+[466-492]   26  Partition 2: Type(H) Area(f) U(f) UncMax(f) OutMax(f) UncMin(f) OutMin(f)
 [492-494]    2  Floor Type (1=Above Cond, 2=Above Uncond, 3=Slab On Grade, 4=Slab Below)
 [494-498]    4  Floor Area (ft², float)
 [498-502]    4  Floor U-value (IP units, float) - convert: SI/5.678
@@ -63,12 +61,8 @@ Offset    Size  Field
 [480-484]    4  Partition 2 Ambient Max Temp (°F, float)
 [484-488]    4  Partition 2 Uncond Min Temp (°F, float)
 [488-492]    4  Partition 2 Ambient Min Temp (°F, float)
-[472-476]    4  Sensible heat ratio (float)
-[476-480]    4  Cooling setpoint (°F, float)
-[480-484]    4  Cooling RH (%, float)
-[484-488]    4  Heating setpoint (°F, float)
-[488-492]    4  Heating RH (%, float)
-[492-494]    2  Infiltration mode (1=When Fan Off, 2=All Hours)
+[492-494]    2  Floor Type (1=Above Cond, 2=Above Uncond, 3=Slab On Grade, 4=Slab Below)
+[494-542]   48  Floor data (Area, U-value, Perimeter, Depths, Temps)
 [554-556]    2  Design Cooling flag (2=ACH mode)
 [556-560]    4  Design Cooling ACH (float)
 [560-562]    2  Design Heating flag (2=ACH mode)
@@ -121,10 +115,12 @@ TESTED AND CONFIRMED (2026-01-26):
 - Must add link in Space_Roof_Links (Space_ID, Roof_ID)
 - Must add link in Space_Window_Links for each skylight used
 
-OA ENCODING (exponential formula)
----------------------------------
-L/s = 0.00470356 * exp(2.71147770 * internal_value)
-internal_value = ln(L/s / 0.00470356) / 2.71147770
+OA ENCODING (piecewise fast_exp2 formula - corrected 2026-02-05)
+----------------------------------------------------------------
+Y0 = 512 CFM in L/s = 512 * 28.316846592 / 60 = 241.637...
+fast_exp2(t) = 2^floor(t) * (1 + frac(t))
+Decode: if x<4: t=(x-4)*4, else: t=(x-4)*2; value = Y0 * fast_exp2(t)
+Encode: t=fast_log2(value/Y0); if t<0: x=t/4+4, else: x=t/2+4
 
 MDB TABLES REQUIRED FOR LINKS
 -----------------------------
@@ -330,61 +326,62 @@ def ls_to_cfm(ls: float) -> float:
 
 import math
 
-# OA encoding constants (exponential formula)
-# Discovered through reverse engineering:
-# L/s = OA_A * exp(OA_B * internal)
-# internal = ln(L/s / OA_A) / OA_B
-# Calibrated with HAP 5.1:
-#   interno=3.527275 -> 67 L/s
-#   interno=3.081408 -> 20 L/s
-#   interno=3.230944 -> 29.1 L/s (quando esperado 30)
-# NOTA: Precisão ~3%, HAP pode arredondar valores
-OA_A = 0.00470356
-OA_B = 2.71147770
+# OA encoding - exact closed-form formula (2026-02-05)
+# HAP 5.1 uses a piecewise-linear "fast_exp2" approximation:
+#   y = Y0 * fast_exp2(k * (x - 4))
+#   k=4 for x<4 (base 16), k=2 for x>=4 (base 4)
+#   Y0 = 512 CFM in L/s = 241.637...
+_OA_Y0 = 512.0 * (28.316846592 / 60.0)
+
+def _fast_exp2(t):
+    n = math.floor(t)
+    f = t - n
+    return (2.0 ** n) * (1.0 + f)
+
+def _fast_log2(v):
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    if f < 0:
+        n -= 1
+        f = v / (2.0 ** n) - 1.0
+    if f >= 1.0:
+        n += 1
+        f = v / (2.0 ** n) - 1.0
+    return n + f
 
 def decode_oa_value(internal_float: float, unit_code: int) -> float:
-    """Decode internal OA value to user value based on unit code.
-
-    The encoding uses an exponential formula:
-    L/s = 0.00470356 * exp(2.7114777 * internal)
-    """
+    """Decode internal OA value to user value.
+    Uses piecewise fast_exp2 formula (same as excel_to_hap.py)."""
     if internal_float <= 0:
         return 0.0
-
-    if unit_code == 1:  # L/s
-        return OA_A * math.exp(OA_B * internal_float)
-    elif unit_code == 2:  # L/s/m²
-        # TODO: verify formula for L/s/m²
-        return OA_A * math.exp(OA_B * internal_float)
-    elif unit_code == 3:  # L/s/person
-        # TODO: verify formula for L/s/person
-        return OA_A * math.exp(OA_B * internal_float)
-    elif unit_code == 4:  # %
-        # TODO: verify formula for %
+    if unit_code == 4:  # %
         return internal_float * 28.5714
-    return internal_float
-
-def encode_oa_value(user_value: float, unit_code: int) -> float:
-    """Encode user OA value to internal float based on unit code.
-
-    The encoding uses an exponential formula:
-    internal = ln(L/s / 0.00470356) / 2.7114777
-    """
-    if user_value <= 0:
+    try:
+        x = internal_float
+        if x < 4.0:
+            t = (x - 4.0) * 4.0
+        else:
+            t = (x - 4.0) * 2.0
+        return _OA_Y0 * _fast_exp2(t)
+    except:
         return 0.0
 
-    if unit_code == 1:  # L/s
-        return math.log(user_value / OA_A) / OA_B
-    elif unit_code == 2:  # L/s/m²
-        # TODO: verify formula for L/s/m²
-        return math.log(user_value / OA_A) / OA_B
-    elif unit_code == 3:  # L/s/person
-        # TODO: verify formula for L/s/person
-        return math.log(user_value / OA_A) / OA_B
-    elif unit_code == 4:  # %
-        # TODO: verify formula for %
+def encode_oa_value(user_value: float, unit_code: int) -> float:
+    """Encode user OA value to internal float.
+    Uses piecewise fast_log2 formula (same as excel_to_hap.py)."""
+    if user_value <= 0:
+        return 0.0
+    if unit_code == 4:  # %
         return user_value / 28.5714
-    return user_value
+    try:
+        v = float(user_value) / _OA_Y0
+        t = _fast_log2(v)
+        if t < 0:
+            return t / 4.0 + 4.0
+        else:
+            return t / 2.0 + 4.0
+    except:
+        return 0.0
 
 
 # =============================================================================
@@ -682,28 +679,29 @@ def parse_space(data: bytes) -> HAPSpace:
     space.floor_data = data[344:392]  # 48 bytes for floor
     space.roof_data = data[392:440]   # 48 bytes for roof
 
-    # Thermostat (440-491)
-    space.thermostat_schedule_id = struct.unpack('<H', data[440:442])[0]
-    space.sensible_heat_ratio = struct.unpack('<f', data[472:476])[0]
-    space.cooling_setpoint_f = struct.unpack('<f', data[476:480])[0]
-    space.cooling_rh = struct.unpack('<f', data[480:484])[0]
-    space.heating_setpoint_f = struct.unpack('<f', data[484:488])[0]
-    space.heating_rh = struct.unpack('<f', data[488:492])[0]
+    # Partitions (440-491) - two partitions of 26 bytes each
+    # Partition 1 (440-465): Type(H), Area(f), U-Value(f), UncMax(f), OutMax(f), UncMin(f), OutMin(f)
+    space.partition1.partition_type = struct.unpack('<H', data[440:442])[0]
+    space.partition1.area_ft2 = struct.unpack('<f', data[442:446])[0]
+    space.partition1.u_value = struct.unpack('<f', data[446:450])[0]
+    space.partition1.uncond_max_temp_f = struct.unpack('<f', data[450:454])[0]
+    space.partition1.ambient_at_max_f = struct.unpack('<f', data[454:458])[0]
+    space.partition1.uncond_min_temp_f = struct.unpack('<f', data[458:462])[0]
+    space.partition1.ambient_at_min_f = struct.unpack('<f', data[462:466])[0]
+    # Partition 2 (466-491): Type(H), Area(f), U-Value(f), UncMax(f), OutMax(f), UncMin(f), OutMin(f)
+    space.partition2.partition_type = struct.unpack('<H', data[466:468])[0]
+    space.partition2.area_ft2 = struct.unpack('<f', data[468:472])[0]
+    space.partition2.u_value = struct.unpack('<f', data[472:476])[0]
+    space.partition2.uncond_max_temp_f = struct.unpack('<f', data[476:480])[0]
+    space.partition2.ambient_at_max_f = struct.unpack('<f', data[480:484])[0]
+    space.partition2.uncond_min_temp_f = struct.unpack('<f', data[484:488])[0]
+    space.partition2.ambient_at_min_f = struct.unpack('<f', data[488:492])[0]
 
-    # Infiltration (492-527)
-    space.infiltration.mode = struct.unpack('<H', data[492:494])[0]
-    space.infiltration.design_cooling_cfm = struct.unpack('<f', data[494:498])[0]
-    space.infiltration.design_cooling_cfm_ft2 = struct.unpack('<f', data[498:502])[0]
-    space.infiltration.design_cooling_ach = struct.unpack('<f', data[502:506])[0]
-    space.infiltration.design_heating_cfm = struct.unpack('<f', data[506:510])[0]
-    space.infiltration.design_heating_cfm_ft2 = struct.unpack('<f', data[510:514])[0]
-    space.infiltration.design_heating_ach = struct.unpack('<f', data[514:518])[0]
-    space.infiltration.energy_cfm = struct.unpack('<f', data[518:522])[0]
-    space.infiltration.energy_cfm_ft2 = struct.unpack('<f', data[522:526])[0]
-
-    # Partitions (528-579) - simplified
-    space.partition1.area_ft2 = struct.unpack('<f', data[528:532])[0]
-    space.partition1.u_value = struct.unpack('<f', data[532:536])[0]
+    # Infiltration (554-572) - ACH values
+    # Offsets 554, 560, 566 are flags (2=ACH mode), followed by float ACH values
+    space.infiltration.design_cooling_ach = struct.unpack('<f', data[556:560])[0]
+    space.infiltration.design_heating_ach = struct.unpack('<f', data[562:566])[0]
+    # Note: energy ACH is at 568-572 but not stored in Infiltration dataclass
 
     # People (580-599)
     space.occupancy = struct.unpack('<f', data[580:584])[0]
@@ -717,7 +715,7 @@ def parse_space(data: bytes) -> HAPSpace:
     space.fixture_type_id = struct.unpack('<H', data[604:606])[0]
     space.overhead_lighting_w = struct.unpack('<f', data[606:610])[0]
     space.ballast_multiplier = struct.unpack('<f', data[610:614])[0]
-    space.lighting_schedule_id = struct.unpack('<H', data[614:616])[0]
+    space.lighting_schedule_id = struct.unpack('<H', data[616:618])[0]
 
     # Misc (632-647)
     space.misc_sensible_btu_hr = struct.unpack('<f', data[632:636])[0]
@@ -768,28 +766,31 @@ def encode_space(space: HAPSpace) -> bytes:
     data[344:392] = space.floor_data[:48] if len(space.floor_data) >= 48 else space.floor_data.ljust(48, b'\x00')
     data[392:440] = space.roof_data[:48] if len(space.roof_data) >= 48 else space.roof_data.ljust(48, b'\x00')
 
-    # Thermostat (440-491)
-    struct.pack_into('<H', data, 440, space.thermostat_schedule_id)
-    struct.pack_into('<f', data, 472, space.sensible_heat_ratio)
-    struct.pack_into('<f', data, 476, space.cooling_setpoint_f)
-    struct.pack_into('<f', data, 480, space.cooling_rh)
-    struct.pack_into('<f', data, 484, space.heating_setpoint_f)
-    struct.pack_into('<f', data, 488, space.heating_rh)
+    # Partitions (440-491) - two partitions of 26 bytes each
+    # Partition 1 (440-465)
+    struct.pack_into('<H', data, 440, space.partition1.partition_type)
+    struct.pack_into('<f', data, 442, space.partition1.area_ft2)
+    struct.pack_into('<f', data, 446, space.partition1.u_value)
+    struct.pack_into('<f', data, 450, space.partition1.uncond_max_temp_f)
+    struct.pack_into('<f', data, 454, space.partition1.ambient_at_max_f)
+    struct.pack_into('<f', data, 458, space.partition1.uncond_min_temp_f)
+    struct.pack_into('<f', data, 462, space.partition1.ambient_at_min_f)
+    # Partition 2 (466-491)
+    struct.pack_into('<H', data, 466, space.partition2.partition_type)
+    struct.pack_into('<f', data, 468, space.partition2.area_ft2)
+    struct.pack_into('<f', data, 472, space.partition2.u_value)
+    struct.pack_into('<f', data, 476, space.partition2.uncond_max_temp_f)
+    struct.pack_into('<f', data, 480, space.partition2.ambient_at_max_f)
+    struct.pack_into('<f', data, 484, space.partition2.uncond_min_temp_f)
+    struct.pack_into('<f', data, 488, space.partition2.ambient_at_min_f)
 
-    # Infiltration (492-527)
-    struct.pack_into('<H', data, 492, space.infiltration.mode)
-    struct.pack_into('<f', data, 494, space.infiltration.design_cooling_cfm)
-    struct.pack_into('<f', data, 498, space.infiltration.design_cooling_cfm_ft2)
-    struct.pack_into('<f', data, 502, space.infiltration.design_cooling_ach)
-    struct.pack_into('<f', data, 506, space.infiltration.design_heating_cfm)
-    struct.pack_into('<f', data, 510, space.infiltration.design_heating_cfm_ft2)
-    struct.pack_into('<f', data, 514, space.infiltration.design_heating_ach)
-    struct.pack_into('<f', data, 518, space.infiltration.energy_cfm)
-    struct.pack_into('<f', data, 522, space.infiltration.energy_cfm_ft2)
-
-    # Partitions (528-579)
-    struct.pack_into('<f', data, 528, space.partition1.area_ft2)
-    struct.pack_into('<f', data, 532, space.partition1.u_value)
+    # Infiltration (554-572) - ACH values
+    # Offsets 554, 560, 566 are flags (2=ACH mode), followed by float ACH values
+    ACH_MODE = 2
+    struct.pack_into('<H', data, 554, ACH_MODE)
+    struct.pack_into('<f', data, 556, space.infiltration.design_cooling_ach)
+    struct.pack_into('<H', data, 560, ACH_MODE)
+    struct.pack_into('<f', data, 562, space.infiltration.design_heating_ach)
 
     # People (580-599)
     struct.pack_into('<f', data, 580, space.occupancy)
@@ -803,7 +804,7 @@ def encode_space(space: HAPSpace) -> bytes:
     struct.pack_into('<H', data, 604, space.fixture_type_id)
     struct.pack_into('<f', data, 606, space.overhead_lighting_w)
     struct.pack_into('<f', data, 610, space.ballast_multiplier)
-    struct.pack_into('<H', data, 614, space.lighting_schedule_id)
+    struct.pack_into('<H', data, 616, space.lighting_schedule_id)
 
     # Misc (632-647)
     struct.pack_into('<f', data, 632, space.misc_sensible_btu_hr)

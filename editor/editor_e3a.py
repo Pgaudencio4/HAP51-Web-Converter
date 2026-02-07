@@ -48,9 +48,28 @@ PREV_FILL = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='sol
 REF_FILL = PatternFill(start_color='E2EFDA', end_color='E2EFDA', fill_type='solid')
 CHECK_FILL = PatternFill(start_color='D9D9D9', end_color='D9D9D9', fill_type='solid')
 
-# OA encoding constants
-OA_A = 0.00470356
-OA_B = 2.71147770
+# OA encoding - exact closed-form formula (2026-02-05)
+# HAP 5.1 uses a piecewise-linear "fast_exp2" approximation:
+#   y = Y0 * fast_exp2(k * (x - 4))
+#   k=4 for x<4 (base 16), k=2 for x>=4 (base 4)
+#   Y0 = 512 CFM in L/s = 241.637...
+_OA_Y0 = 512.0 * (28.316846592 / 60.0)
+
+def _fast_exp2(t):
+    n = math.floor(t)
+    f = t - n
+    return (2.0 ** n) * (1.0 + f)
+
+def _fast_log2(v):
+    n = math.floor(math.log2(v))
+    f = v / (2.0 ** n) - 1.0
+    if f < 0:
+        n -= 1
+        f = v / (2.0 ** n) - 1.0
+    if f >= 1.0:
+        n += 1
+        f = v / (2.0 ** n) - 1.0
+    return n + f
 
 # =============================================================================
 # CONVERSÕES SI -> Imperial
@@ -81,11 +100,17 @@ def r_si_to_ip(r):
     return r * 5.678 if r else 0
 
 def encode_oa(user_value):
-    """Codifica valor OA do utilizador para formato interno"""
+    """Codifica valor OA do utilizador para formato interno HAP.
+    Usa a formula piecewise fast_exp2 (identica ao excel_to_hap.py)."""
     if user_value <= 0:
         return 0
     try:
-        return math.log(user_value / OA_A) / OA_B
+        v = float(user_value) / _OA_Y0
+        t = _fast_log2(v)
+        if t < 0:
+            return t / 4.0 + 4.0
+        else:
+            return t / 2.0 + 4.0
     except:
         return 0
 
@@ -271,7 +296,7 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
 
     print(f"A aplicar alterações de {editor_xlsx}...")
 
-    wb = openpyxl.load_workbook(editor_xlsx)
+    wb = openpyxl.load_workbook(editor_xlsx, data_only=True)
 
     # Ler ficheiros do E3A
     with zipfile.ZipFile(e3a_path, 'r') as zf:
@@ -451,6 +476,12 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
                     spc_data[abs_offset:abs_offset+4] = struct.pack('<f', val_converted)
                     changes += 1
 
+                    # Infiltration: garantir flag ACH mode (2) nos offsets 554/560/566
+                    if field_idx in (24, 25, 26):
+                        flag_offsets = {24: 554, 25: 560, 26: 566}
+                        flag_abs = space_offset + flag_offsets[field_idx]
+                        struct.pack_into('<H', spc_data, flag_abs, 2)
+
                     # Guardar para INX
                     if field_idx == 2:  # Floor Area
                         spc_inx_vals['area'] = val_converted
@@ -528,7 +559,7 @@ def apply_changes(e3a_path, editor_xlsx, output_path):
         # Campos: Nome(1), U-Value(2), SHGC(3), Altura(4), Largura(5)
         WIN_MAP = {
             2: (269, 'f', u_si_to_ip),    # U-Value
-            3: (433, 'f', None),          # SHGC (sem conversão)
+            3: (273, 'f', None),          # SHGC (offset 273, confirmado)
             4: (257, 'f', m_to_ft),       # Altura
             5: (261, 'f', m_to_ft),       # Largura
         }

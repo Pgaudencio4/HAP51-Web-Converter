@@ -61,11 +61,13 @@ OA_UNIT_NAMES = {
     0: '', 1: 'L/s', 2: 'L/s/m2', 3: 'L/s/person', 4: '%'
 }
 
-# OA decoding constants
-OA_A = 0.00470356
-OA_B = 2.71147770
-
+# OA encoding - exact closed-form formula (2026-02-05)
+# HAP 5.1 uses a piecewise-linear "fast_exp2" approximation:
+#   y = Y0 * fast_exp2(k * (x - 4))
+#   k=4 for x<4 (base 16), k=2 for x>=4 (base 4)
+#   Y0 = 512 CFM in L/s = 241.637...
 import math
+_OA_Y0 = 512.0 * (28.316846592 / 60.0)
 
 # =============================================================================
 # CONVERSÕES (Imperial para SI)
@@ -97,12 +99,23 @@ def r_ip_to_si(r):
     """(hr·ft²·°F)/BTU para (m²·K)/W"""
     return r / 5.678 if r else 0
 
+def _fast_exp2(t):
+    n = math.floor(t)
+    f = t - n
+    return (2.0 ** n) * (1.0 + f)
+
 def decode_oa(internal_float):
-    """Descodifica valor interno OA para valor do utilizador"""
+    """Descodifica valor interno OA para valor do utilizador.
+    Usa formula piecewise fast_exp2 (identica ao excel_to_hap.py)."""
     if internal_float <= 0:
         return 0
     try:
-        return OA_A * math.exp(OA_B * internal_float)
+        x = internal_float
+        if x < 4.0:
+            t = (x - 4.0) * 4.0
+        else:
+            t = (x - 4.0) * 2.0
+        return _OA_Y0 * _fast_exp2(t)
     except:
         return 0
 
@@ -234,20 +247,19 @@ def extract_space_record(data, index):
     space['misc_lat_schedule_id'] = struct.unpack('<H', data[644:646])[0]
 
     # === INFILTRATION (cols 23-26) ===
-    # O método de infiltração está codificado na coluna do Excel como "Air Change" ou similar
-    # No HAP, os valores ACH estão nos offsets 556, 562, 568 (CONFIRMADO)
-    # O offset 492 parece ter outro significado
+    # Offsets 554, 560, 566 são flags de modo (0=L/s, 1=L/(s.m2), 2=ACH)
+    # Seguidos de float com o valor na unidade indicada pela flag
+    infil_flag = struct.unpack('<H', data[554:556])[0]
+    INFIL_MODES = {0: 'L/s', 1: 'L/(s.m2)', 2: 'Air Change'}
+    space['infil_method'] = INFIL_MODES.get(infil_flag, 'Air Change')
 
-    # Inferir método do facto de termos valores ACH
-    space['infil_method'] = 'Air Change'  # Default quando temos ACH values
-
-    # 556-559: Design Cooling ACH (CONFIRMADO)
+    # 556-559: Design Cooling value
     space['design_clg_ach'] = round(struct.unpack('<f', data[556:560])[0], 2)
 
-    # 562-565: Design Heating ACH (CONFIRMADO)
+    # 562-565: Design Heating value
     space['design_htg_ach'] = round(struct.unpack('<f', data[562:566])[0], 2)
 
-    # 568-571: Energy ACH (CONFIRMADO)
+    # 568-571: Energy value
     space['energy_ach'] = round(struct.unpack('<f', data[568:572])[0], 2)
 
     # === FLOORS (cols 27-39) ===
@@ -353,20 +365,20 @@ def extract_wall_block(data, offset):
     # +8: Window 1 Type ID
     wall['window1_type_id'] = struct.unpack('<H', data[offset+8:offset+10])[0]
 
+    # +10: Window 2 Type ID
+    wall['window2_type_id'] = struct.unpack('<H', data[offset+10:offset+12])[0]
+
     # +12: Window 1 Quantity
     wall['window1_qty'] = struct.unpack('<H', data[offset+12:offset+14])[0]
 
-    # +14: Window 2 Type ID
-    wall['window2_type_id'] = struct.unpack('<H', data[offset+14:offset+16])[0]
+    # +14: Window 2 Quantity
+    wall['window2_qty'] = struct.unpack('<H', data[offset+14:offset+16])[0]
 
-    # +18: Window 2 Quantity
-    wall['window2_qty'] = struct.unpack('<H', data[offset+18:offset+20])[0]
+    # +16: Door Type ID
+    wall['door_type_id'] = struct.unpack('<H', data[offset+16:offset+18])[0]
 
-    # +20: Door Type ID
-    wall['door_type_id'] = struct.unpack('<H', data[offset+20:offset+22])[0]
-
-    # +22: Door Quantity
-    wall['door_qty'] = struct.unpack('<H', data[offset+22:offset+24])[0]
+    # +18: Door Quantity
+    wall['door_qty'] = struct.unpack('<H', data[offset+18:offset+20])[0]
 
     return wall
 
@@ -540,9 +552,9 @@ def extract_windows(win_data):
             u_value_ip = struct.unpack('<f', win_data[offset+269:offset+273])[0]
             u_value_si = round(u_ip_to_si(u_value_ip), 3) if 0 < u_value_ip < 5 else 0
 
-            # SHGC - offset 433
-            shgc = struct.unpack('<f', win_data[offset+433:offset+437])[0]
-            shgc = round(shgc, 3) if 0 < shgc < 1 else 0
+            # SHGC - offset 273 (confirmado em ANALISE_MALHOA22 e excel_to_hap.py)
+            shgc = struct.unpack('<f', win_data[offset+273:offset+277])[0]
+            shgc = round(shgc, 3) if 0 < shgc <= 1 else 0
         except:
             u_value_si = 0
             shgc = 0

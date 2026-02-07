@@ -603,12 +603,11 @@ def create_space_binary(space, types, template_record):
                 struct.pack_into('<f', data, wall_start + 2, m2_to_ft2(wall.get('area')))
                 struct.pack_into('<H', data, wall_start + 6, wall_type_id)
                 struct.pack_into('<H', data, wall_start + 8, get_type_id(wall.get('win1'), types['windows'], 0))
-                # +10 reservado (não usar)
-                struct.pack_into('<H', data, wall_start + 12, safe_int(wall.get('win1_qty')))  # Win1 Qty em +12!
-                struct.pack_into('<H', data, wall_start + 14, get_type_id(wall.get('win2'), types['windows'], 0))
-                struct.pack_into('<H', data, wall_start + 16, safe_int(wall.get('win2_qty')))
-                struct.pack_into('<H', data, wall_start + 18, get_type_id(wall.get('door'), types['doors'], 0))
-                struct.pack_into('<H', data, wall_start + 20, safe_int(wall.get('door_qty')))
+                struct.pack_into('<H', data, wall_start + 10, get_type_id(wall.get('win2'), types['windows'], 0))
+                struct.pack_into('<H', data, wall_start + 12, safe_int(wall.get('win1_qty')))
+                struct.pack_into('<H', data, wall_start + 14, safe_int(wall.get('win2_qty')))
+                struct.pack_into('<H', data, wall_start + 16, get_type_id(wall.get('door'), types['doors'], 0))
+                struct.pack_into('<H', data, wall_start + 18, safe_int(wall.get('door_qty')))
 
     # ROOFS (344-440)
     for i in range(4):
@@ -691,15 +690,14 @@ def create_space_binary(space, types, template_record):
             struct.pack_into('<f', data, 538, c_to_f(space.get('floor_out_min')))
 
     # INFILTRATION (554-572)
-    # NOTA: Offsets 554, 560, 566 são SCHEDULE IDs, NÃO flags!
-    # Usar 0 para usar o Sample Schedule (schedule por defeito)
-    # ou obter do template se disponível
-    infil_sch_id = 0  # Default: Sample Schedule
-    struct.pack_into('<H', data, 554, infil_sch_id)  # Infiltration Schedule ID 1
+    # Offsets 554, 560, 566 são FLAGS de modo (2 = ACH mode)
+    # Seguidos de float com o valor ACH
+    ACH_MODE_FLAG = 2
+    struct.pack_into('<H', data, 554, ACH_MODE_FLAG)  # Design Cooling flag
     struct.pack_into('<f', data, 556, safe_float(space.get('ach_clg')))
-    struct.pack_into('<H', data, 560, infil_sch_id)  # Infiltration Schedule ID 2
+    struct.pack_into('<H', data, 560, ACH_MODE_FLAG)  # Design Heating flag
     struct.pack_into('<f', data, 562, safe_float(space.get('ach_htg')))
-    struct.pack_into('<H', data, 566, infil_sch_id)  # Infiltration Schedule ID 3
+    struct.pack_into('<H', data, 566, ACH_MODE_FLAG)  # Energy Analysis flag
     struct.pack_into('<f', data, 568, safe_float(space.get('ach_energy')))
 
     # PEOPLE (580-596)

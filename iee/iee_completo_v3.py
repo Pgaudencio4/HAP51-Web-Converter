@@ -92,7 +92,7 @@ MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 
 
 def read_hap_csv(filepath):
     """Lê um CSV do HAP e retorna dados"""
-    with open(filepath, 'r', encoding='utf-8') as f:
+    with open(filepath, 'r', encoding='latin-1') as f:
         lines = f.readlines()
 
     if len(lines) < 5:
