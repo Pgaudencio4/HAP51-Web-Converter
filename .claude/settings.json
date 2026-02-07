@@ -1,0 +1,10 @@
+{
+  "exclude": [
+    "_arquivo/**",
+    "_desenvolvimento/**",
+    "_testes/**",
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "NDH6SA~M"
+  ]
+}

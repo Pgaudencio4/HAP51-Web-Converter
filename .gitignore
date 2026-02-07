@@ -21,3 +21,14 @@ _testes/
 # Ficheiros grandes binarios (opcional - descomentar se necessario)
 # *.E3A
 # *.mdb
+
+# Ficheiros temporarios Windows
+NDH6SA~M
+~$*.xlsx
+
+# Ficheiros gerados pelo editor (testes)
+exemplos/*_Editado.E3A
+exemplos/*_EDITOR*.xlsx
+
+# Claude Code (configuração local)
+.claude/settings.local.json

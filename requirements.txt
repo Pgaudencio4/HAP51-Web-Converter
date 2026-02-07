@@ -1,0 +1,11 @@
+# HAP 5.1 Tools - Dependências
+# pip install -r requirements.txt
+
+# Obrigatório - manipulação de Excel
+openpyxl>=3.1.0
+
+# Opcional - actualização de MDB (requer Microsoft Access Database Engine)
+# pyodbc>=4.0.39
+
+# Opcional - interface web
+# flask>=2.3.0

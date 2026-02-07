@@ -197,26 +197,15 @@ Para alterar a área do espaço "Sala1" de 50 m² para 60 m²:
 
 ---
 
-## 🌐 Interface Web (Opcional)
-
-Para uma interface gráfica simples:
-```bash
-python app.py
-```
-Abrir no browser: **http://localhost:5000**
-
----
-
 ## 📋 Requisitos
 
 ```bash
-pip install openpyxl pyodbc flask
+pip install -r requirements.txt
 ```
 
 - Python 3.8+
-- openpyxl (manipulação de Excel)
-- pyodbc (actualização de MDB - só para conversor)
-- flask (interface web - opcional)
+- openpyxl (manipulação de Excel) — obrigatório
+- pyodbc (actualização de MDB - só para conversor) — opcional
 
 ---
 
